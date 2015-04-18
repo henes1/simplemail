@@ -324,18 +324,42 @@ static int imap_wait_login(struct connection *conn, struct imap_server *server)
 {
 	char *line;
 	char buf[100];
+	int ok = 0;
 
-	/* At the moment the loop is not necessary */
-	while ((line = tcp_readln(conn)))
+	if ((line = tcp_readln(conn)))
 	{
 		SM_DEBUGF(20,("recv: %s",line));
 
 		line = imap_get_result(line,buf,sizeof(buf));
 		line = imap_get_result(line,buf,sizeof(buf));
-		if (!mystricmp(buf,"OK")) return 1;
-		else return 0;
+		if (mystricmp(buf,"OK"))
+			goto bailout;
 	}
-	return 0;
+
+	/* If starttls option is active, perform the starttls kick off */
+	if (server->starttls)
+	{
+		if (!imap_send_simple_command(conn, "STARTTLS"))
+		{
+			SM_DEBUGF(10,("STARTTLS command failure\n"));
+			goto bailout;
+		}
+
+		if (!tcp_make_secure(conn, server->name, server->fingerprint))
+		{
+			SM_DEBUGF(10,("Connection couldn't be made secure\n",buf));
+			tell_from_subtask("Connection couldn't be made secure");
+			goto bailout;
+		}
+
+		ok = 1;
+		SM_DEBUGF(20,("STARTTLS success\n"));
+	} else
+	{
+		ok = 1;
+	}
+bailout:
+	return ok;
 }
 
 /**
@@ -1118,7 +1142,7 @@ void imap_synchronize_really(struct list *imap_list, int called_by_auto)
 				free(login);
 			}
 
-			conn_opts.use_ssl = server->ssl;
+			conn_opts.use_ssl = server->ssl && !server->starttls;
 			conn_opts.fingerprint = server->fingerprint;
 
 			SM_DEBUGF(10,("Connecting\n"));
@@ -1161,7 +1185,11 @@ void imap_synchronize_really(struct list *imap_list, int called_by_auto)
 
 							imap_free_name_list(folder_list);
 						}
-					} else thread_call_function_async(thread_get_main(),status_set_status,1,_("Login failed!"));
+					} else
+					{
+						thread_call_function_async(thread_get_main(),status_set_status,1,_("Login failed!"));
+						tell_from_subtask(N_("Authentication failed!"));
+					}
 				}
 				tcp_disconnect(conn);
 
@@ -1226,7 +1254,11 @@ static void imap_get_folder_list_really(struct imap_server *server, void (*callb
 
 	thread_call_function_async(thread_get_main(),status_set_status,1,_("Login..."));
 	if (!imap_login(conn,server))
+	{
+		thread_call_function_async(thread_get_main(),status_set_status,1,_("Login failed!"));
+		tell_from_subtask(N_("Authentication failed!"));
 		goto bailout;
+	}
 
 	thread_call_function_async(thread_get_main(),status_set_status,1,_("Reading folders..."));
 	if (!(all_folder_list = imap_get_folders(conn,1)))
@@ -1531,6 +1563,7 @@ struct imap_server *imap_duplicate(struct imap_server *imap)
 		new_imap->port = imap->port;
 		new_imap->active = imap->active;
 		new_imap->ssl = imap->ssl;
+		new_imap->starttls = imap->starttls;
 		new_imap->ask = imap->ask;
 	}
 	return new_imap;
@@ -1564,8 +1597,9 @@ static int imap_new_connection_needed(struct imap_server *srv1, struct imap_serv
 	if (!srv1) return 1;
 	if (!srv2) return 1;
 
-  return mystrcmp(srv1->name,srv2->name) || (srv1->port != srv2->port) || mystrcmp(srv1->login,srv2->login) ||
-         (mystrcmp(srv1->passwd,srv2->passwd) && !srv1->ask && !srv2->ask)  || (srv1->ask != srv2->ask) || (srv1->ssl != srv2->ssl);
+	return mystrcmp(srv1->name,srv2->name) || (srv1->port != srv2->port) || mystrcmp(srv1->login,srv2->login) ||
+		(mystrcmp(srv1->passwd,srv2->passwd) && !srv1->ask && !srv2->ask)  || (srv1->ask != srv2->ask) ||
+		(srv1->ssl != srv2->ssl) || (srv1->starttls != srv2->starttls);
 }
 
 
@@ -1959,10 +1993,11 @@ static int imap_thread_really_connect_and_login_to_server(void)
 			} else
 			{
 				SM_DEBUGF(10,("Login failed\n"));
-				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Loggin in failed. Check Username and Password for this account"));
+				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Log in failed. Check user name and password for this account."));
 				thread_call_parent_function_async_string(status_set_status,1,status_buf);
 				tcp_disconnect(imap_connection);
 				imap_connection = NULL;
+				tell_from_subtask(N_("Authentication failed!"));
 			}
 		} else
 		{
@@ -2506,7 +2541,7 @@ void imap_thread_connect(struct folder *folder)
 
 	if (!(server = account_find_imap_server_by_folder(folder)))
 	{
-		SM_DEBUGF(5,("Server for folder %p (%s) not found\n",folder,folder->name));
+		SM_DEBUGF(5,("Server for folder %p (%s) not found\n",folder,folder?folder->name:"NONE"));
 		goto bailout;
 	}
 
