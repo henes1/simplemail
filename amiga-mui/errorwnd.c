@@ -16,9 +16,9 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ***************************************************************************/
 
-/*
-** $Id$
-*/
+/**
+ * @file
+ */
 
 #include <string.h>
 #include <stdlib.h>
@@ -38,11 +38,13 @@
 #include "support_indep.h"
 
 #include "muistuff.h"
+#include "support.h"
 
 struct error_node
 {
 	struct node node;
 	char *text;
+	unsigned int date;
 };
 
 static struct list error_list;
@@ -89,11 +91,11 @@ STATIC ASM SAVEDS VOID error_display(REG(a0,struct Hook *h),REG(a2,Object *obj),
 	struct error_node *error = (struct error_node*)msg->entry;
 	if (!error)
 	{
-		msg->strings[0] = _("Date");
+		msg->strings[0] = _("Time");
 		msg->strings[1] = _("Message");
 		return;
 	}
-	msg->strings[0] = "Unknown";
+	msg->strings[0] = sm_get_time_str(error->date);
 	msg->strings[1] = error->text;
 }
 
@@ -154,6 +156,8 @@ void error_add_message(char *msg)
 		{
 			if ((enode->text = mystrdup(msg)))
 			{
+				enode->date = sm_get_current_seconds();
+
 				set(text_list, MUIA_NList_Quiet, TRUE);
 				DoMethod(text_list, MUIM_NList_Clear);
 				DoMethod(text_list, MUIM_NList_InsertSingleWrap, (ULONG)enode->text, MUIV_NList_Insert_Bottom, WRAPCOL0, ALIGN_LEFT);
