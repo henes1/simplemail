@@ -69,10 +69,8 @@ void CloseLibraryInterface(struct Library *lib, void *interface);
 void kprintf(char *, ...);
 #endif
 
-/******************************************************************
- Creates a directory including all necessaries parent directories.
- Nothing will happen if the directory already exists
-*******************************************************************/
+/*****************************************************************************/
+
 int sm_makedir(char *path)
 {
 	int rc;
@@ -154,142 +152,23 @@ int sm_makedir(char *path)
 	return rc;
 }
 
-/******************************************************************
- Returns the seconds since 1978
-*******************************************************************/
-unsigned int sm_get_seconds(int day, int month, int year)
-{
-	struct ClockData cd;
-	if (year < 1978) return 0;
-	cd.sec = cd.min = cd.hour = 0;
-	cd.mday = day;
-	cd.month = month;
-	cd.year = year;
-	return Date2Amiga(&cd);
-}
+/*****************************************************************************/
 
-/******************************************************************
- Returns the GMT offset in minutes
-*******************************************************************/
-int sm_get_gmt_offset(void)
-{
-	extern struct Locale *DefaultLocale;
-	if (DefaultLocale)
-	{
-		return -DefaultLocale->loc_GMTOffset + (user.config.dst * 60);
-	}
-	return (user.config.dst * 60);
-}
-
-/******************************************************************
- Returns the current seconds (since 1.1.1978)
-*******************************************************************/
-unsigned int sm_get_current_seconds(void)
-{
-	ULONG mics,secs;
-	CurrentTime(&secs,&mics);
-	return secs;
-}
-
-/******************************************************************
- Returns the current micros
-*******************************************************************/
-unsigned int sm_get_current_micros(void)
-{
-	ULONG mics,secs;
-	CurrentTime(&secs,&mics);
-	return mics;
-}
-
-/******************************************************************
- Convert seconds from 1978 to a long form string.
- The returned string is static.
-*******************************************************************/
-char *sm_get_date_long_str(unsigned int seconds)
-{
-	static char buf[128];
-	SecondsToStringLong(buf,seconds);
-	return buf;
-}
-
-/******************************************************************
- Convert seconds from 1978 to a long form string.
- The returned string is static and in utf8.
-*******************************************************************/
-char *sm_get_date_long_str_utf8(unsigned int seconds)
-{
-	static char buf[128];
-	char *utf8;
-
-	SecondsToStringLong(buf,seconds);
-
-	if ((utf8 = (char*)utf8create(buf, user.config.default_codeset?user.config.default_codeset->name:NULL)))
-	{
-		strcpy(buf,utf8);
-		free(utf8);
-	}
-
-	return buf;
-}
-
-/******************************************************************
- Convert seconds from 1978 to a date string.
- The returned string is static.
-*******************************************************************/
-char *sm_get_date_str(unsigned int seconds)
-{
-	static char buf[128];
-	SecondsToDateString(buf,seconds);
-	return buf;
-}
-
-/******************************************************************
- Convert seconds from 1978 to a string.
- The returned string is static.
-*******************************************************************/
-char *sm_get_time_str(unsigned int seconds)
-{
-	static char buf[128];
-	SecondsToTimeString(buf,seconds);
-	return buf;
-}
-
-/******************************************************************
- Convert seconds from 1978 to a tm
-*******************************************************************/
-void sm_convert_seconds(unsigned int seconds, struct tm *tm)
-{
-	struct ClockData cd;
-	Amiga2Date(seconds,&cd);
-	tm->tm_sec = cd.sec;
-	tm->tm_min = cd.min;
-	tm->tm_hour = cd.hour;
-	tm->tm_mday = cd.mday;
-	tm->tm_mon = cd.month - 1;
-	tm->tm_year = cd.year - 1900;
-	tm->tm_wday = cd.wday;
-}
-
-/******************************************************************
- Add a filename component to the drawer
-*******************************************************************/
 int sm_add_part(char *drawer, const char *filename, int buf_size)
 {
 	AddPart(drawer,(char*)filename,buf_size);
 	return 1;
 }
 
-/******************************************************************
- Return the file component of a path
-*******************************************************************/
-char *sm_file_part(char *filename)
+/*****************************************************************************/
+
+char *sm_file_part_nonconst(char *filename)
 {
 	return (char*)FilePart(filename);
 }
 
-/******************************************************************
- Return the character after the last path component
-*******************************************************************/
+/*****************************************************************************/
+
 char *sm_path_part(char *filename)
 {
 	return (char*)PathPart(filename);

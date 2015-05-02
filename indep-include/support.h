@@ -16,26 +16,66 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ***************************************************************************/
 
-/*
-** support.h
-*/
-
+/**
+ * @file
+ */
 #ifndef SM__SUPPORT_H
 #define SM__SUPPORT_H
 
 #include "codesets.h"
 
-struct tm;
-
+/**
+ * Creates a directory including all necessaries parent directories.
+ * The call will be successful even if the directory exists.
+ *
+ * @param path defines the path of the directory to be created
+ * @return 1 if the directory exists or have been created, otherwise 0.
+ */
 int sm_makedir(char *path);
-unsigned int sm_get_seconds(int day, int month, int year);
-int sm_get_gmt_offset(void);
-unsigned int sm_get_current_seconds(void);
-unsigned int sm_get_current_micros(void);
-void sm_convert_seconds(unsigned int seconds, struct tm *tm);
+
+/**
+ * Add a filename component to the given drawer string in place.
+ *
+ * @param drawer the drawer to which the filename is appended
+ * @param filename the filename that is added to the drawer string
+ * @param buf_size the size of the string
+ * @return 1 on success, 0 on failure.
+ */
 int sm_add_part(char *drawer, const char *filename, int buf_size);
-char *sm_file_part(char *filename);
+
+/**
+ * Return the file component of a given path.
+ *
+ * @param filename from which to determine the file component.
+ * @return the pointer to the file
+ *
+ * @note you should not use this function but instead call sm_file_part().
+ */
+char *sm_file_part_nonconst(char *filename);
+
+#if __STDC_VERSION__ >= 201112L
+static inline const char *sm_file_part_const(const char *filename)
+{
+	return (const char*)sm_file_part_nonconst((char*)filename);
+}
+
+#define sm_file_part(filename) _Generic((filename),\
+		char *: sm_file_part_nonconst,\
+		default:sm_file_part_const\
+	)(filename)
+#else
+#define sm_file_part(filename) sm_file_part_nonconst(filename)
+#endif
+
+/**
+ * Return the pointer to the character after the last path component.
+ *
+ * @param filename
+ * @return the pointer to the last character after the last path component.
+ * @note this will remove any const qualifier
+ */
 char *sm_path_part(char *filename);
+
 char *sm_request_file(char *title, char *path, int save, char *extension);
 int sm_request(char *title, char *text, char *gadgets, ...);
 char *sm_request_string(char *title, char *text, char *contents, int secret);
@@ -52,11 +92,6 @@ int sm_system(char *command, char *output);
 
 int sm_file_is_in_drawer(char *filename, char *path);
 int sm_is_same_path(char *path1, char *path2);
-
-char *sm_get_date_long_str(unsigned int seconds);
-char *sm_get_date_long_str_utf8(unsigned int seconds);
-char *sm_get_date_str(unsigned int seconds);
-char *sm_get_time_str(unsigned int seconds);
 
 char *sm_parse_pattern(utf8 *utf8_str, int flags);
 int sm_match_pattern(char *pat, utf8 *utf8_str, int flags);
