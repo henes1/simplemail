@@ -141,6 +141,11 @@ int thread_call_function_sync(thread_t thread, void *function, int argcount, ...
  */
 int thread_call_function_async(thread_t thread, void *function, int argcount, ...);
 
+#if __cplusplus >= 201103L
+template<typename R, typename... A>
+int thread_call_function_async(thread_t, R (*Func)(A...), int argcount, A... args);
+#endif
+
 /**
  * Call a function in context of the parent task in a sychron manner. The contents of
  * success is set to 1, if the call was successful otherwise to 0.
@@ -153,6 +158,11 @@ int thread_call_function_async(thread_t thread, void *function, int argcount, ..
  */
 int thread_call_parent_function_sync(int *success, void *function, int argcount, ...);
 
+#if __cplusplus >= 201103L
+template<typename R, typename... A>
+int thread_call_parent_function_sync(int *success, R (*Func)(A...), int argcount, A... args);
+#endif
+
 /**
  * Call the given function asynchronous in the context of the parent thread
  * and duplicate the first argument which is threaded at a string.
@@ -162,6 +172,12 @@ int thread_call_parent_function_sync(int *success, void *function, int argcount,
  * @return
  */
 int thread_call_parent_function_async_string(void *function, int argcount, ...);
+
+#if __cplusplus >= 201103L
+template<typename R, typename... A>
+int thread_call_parent_function_async_string(R (*Func)(char *, A...), int argcount, char *str, A... args);
+#endif
+
 
 /**
  * @brief Call the function synchronous in the context of the parent task.

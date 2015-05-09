@@ -58,7 +58,7 @@
 #include "compiler.h"
 #include "composeeditorclass.h"
 #include "configwnd.h"
-#include "gui_main_arch.h"
+#include "gui_main_amiga.h"
 #include "muistuff.h"
 #include "multistringclass.h"
 #include "picturebuttonclass.h"
@@ -67,6 +67,8 @@
 #include "configwnd_stuff.h"
 #include "appicon.h"
 #include "foldertreelistclass.h"
+#include "request.h"
+
 
 static void account_recv_port_update(void);
 static void account_refresh_signature_cycle(void);

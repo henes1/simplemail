@@ -36,6 +36,7 @@
 #include "smintl.h"
 #include "support_indep.h"
 
+#include "request.h"
 #include "support.h"
 #include "timesupport.h"
 
@@ -288,7 +289,7 @@ char *addressbook_get_entry_completing_part(struct addressbook_entry_new *entry,
  * @param real name
  * @return the reference to the entry that have just been added.
  */
-struct addressbook_entry_new *addressbook_add_entry(char *realname)
+struct addressbook_entry_new *addressbook_add_entry(const char *realname)
 {
 	struct addressbook_entry_new *entry = (struct addressbook_entry_new*)malloc(sizeof(*entry));
 	if (!entry) return NULL;

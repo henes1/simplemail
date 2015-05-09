@@ -20,8 +20,6 @@ MKDIR = makedir
 DATE =
 endif
 
-# Uncomment the next line if you are cross compiling
-
 CC     = $(CROSS_COMPILE)gcc
 CXX    = $(CROSS_COMPILE)c++
 AS     = $(CROSS_COMPILE)as
@@ -154,6 +152,7 @@ ARCHSRCS=\
 	popupmenuclass.c \
 	progmonwnd.c \
 	readwnd.c \
+	request.c \
 	searchwnd.c \
 	shutdownwnd.c \
 	signaturecycleclass.c \
@@ -161,7 +160,7 @@ ARCHSRCS=\
 	startup-os4.c \
 	startupwnd.c \
 	statuswnd.c \
-	subthreads.c \
+	subthreads_amiga.c \
 	support.c \
 	sysprint.c \
 	tcpip.c \
@@ -232,7 +231,7 @@ $(OBJSDIR)/%.o: %.S
 # Inspired by http://scottmcpeak.com/autodepend/autodepend.html
 $(OBJSDIR)/%.o: %.c
 	$(CC) -MMD $(CFLAGS) -c $< -o $@
-	# Now add, for each prerequiste, a corresponding (empty) target
+# Now add, for each prerequiste, a corresponding (empty) target
 	@cat $(@:.o=.d) | tr -d '\\' | tr '\n' ' ' | sed -e 's/.\+:\s*//' | sed -e 's/\s\+/:\n/g' >$(@:.o=.d.tmp)
 	@cat $(@:.o=.d.tmp) >>$(@:.o=.d)
 	@rm $(@:.o=.d.tmp)
