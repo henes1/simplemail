@@ -154,7 +154,6 @@ int init_folders(void);
 void del_folders(void);
 
 int folder_add_mail(struct folder *folder, struct mail_info *mail, int sort);
-int folder_add_mail_incoming(struct mail_info *mail);
 void folder_mark_mail_as_deleted(struct folder *folder, struct mail_info *mail);
 void folder_mark_mail_as_undeleted(struct folder *folder, struct mail_info *mail);
 void folder_replace_mail(struct folder *folder, struct mail_info *toreplace, struct mail_info *newmail);
@@ -203,7 +202,16 @@ void folder_delete_deleted(void);
 int folder_save_index(struct folder *f);
 void folder_save_all_indexfiles(void);
 void folder_delete_all_indexfiles(void);
-int folder_rescan(struct folder *folder);
+
+/**
+ * Rescan the given folder, i.e., index all mails in the folder.
+ *
+ * @param folder the folder to be rescanned.
+ * @param status_callback defines the function that is called for staus updates.
+ * @return 0 on failure, everything else on success.
+ */
+int folder_rescan(struct folder *folder, void (*status_callback)(const char *txt));
+
 struct folder *folder_add_with_name(char *path, char *name);
 struct folder *folder_add_group(char *name);
 struct folder *folder_add_imap(struct folder *parent, char *imap_path);
