@@ -16,9 +16,9 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ***************************************************************************/
 
-/*
-** smtp.c
-*/
+/**
+ * @file
+ */
 
 #include "smtp.h"
 
@@ -44,7 +44,7 @@
 #include "support.h"
 #include "tcpip.h"
 
-/************************************************************************/
+/*****************************************************************************/
 
 struct smtp_connection
 {
@@ -55,7 +55,7 @@ struct smtp_connection
 	int auth_flags; /* Supported AUTH methods */
 };
 
-/************************************************************************/
+/*****************************************************************************/
 
 static char *buf_init(void)
 {
@@ -73,12 +73,17 @@ static void buf_free(char *buf)
 	free(buf);
 }
 
-/***************************************************************************
- Send a smtp command and evaluate the result. If cmd is NULL the send
- phase is skipped, which means that the result phase is still evaluated.
- If an error occurs -1 is returned, else the error code of the smtp
- command.
-****************************************************************************/
+/**
+ * Send a smtp command and evaluate the result. If cmd is NULL the send
+ * phase is skipped, which means that the result phase is still evaluated.
+ * If an error occurs -1 is returned, else the error code of the smtp
+ * command.
+ *
+ * @param conn
+ * @param cmd
+ * @param args
+ * @return
+ */
 static int smtp_send_cmd(struct smtp_connection *conn, char *cmd, char *args)
 {
 	int rc;
@@ -118,9 +123,12 @@ static int smtp_send_cmd(struct smtp_connection *conn, char *cmd, char *args)
 	return rc;
 }
 
-/**************************************************************************
- Service ready?
-**************************************************************************/
+/**
+ * Service ready?
+ *
+ * @param conn the already established smtp connection
+ * @return ready (1) or not ready (0)
+ */
 static int smtp_service_ready(struct smtp_connection *conn)
 {
 	if (smtp_send_cmd(conn, NULL, NULL) != SMTP_SERVICE_READY)
@@ -131,9 +139,13 @@ static int smtp_service_ready(struct smtp_connection *conn)
 	return 1;
 }
 
-/**************************************************************************
- Send the HELO command
-**************************************************************************/
+/**
+ * Send the HELO command
+ *
+ * @param conn the already established smtp connection.
+ * @param account the account used for the connection.
+ * @return 1 success, 0 otherwise
+ */
 static int smtp_helo(struct smtp_connection *conn, struct account *account)
 {
 	char dom[512];
@@ -158,9 +170,13 @@ static int smtp_helo(struct smtp_connection *conn, struct account *account)
 	return 1;
 }
 
-/**************************************************************************
- Send FROM command
-**************************************************************************/
+/**
+ * Send the FROM command
+ *
+ * @param conn the already established smtp connection
+ * @param account the account defining the from address
+ * @return 1 on success, 0 otherwise.
+ */
 static int smtp_from(struct smtp_connection *conn, struct account *account)
 {
 	int rc;
@@ -197,9 +213,14 @@ out:
 	return rc;
 }
 
-/**************************************************************************
- Send RCPT command
-**************************************************************************/
+/**
+ * Send the RCPT command.
+ *
+ * @param conn the already established smtp connection
+ * @param account the account defining the recipients
+ * @param om the description.
+ * @return 1 on success, 0 otherwise.
+ */
 static int smtp_rcpt(struct smtp_connection *conn, struct account *account, struct outmail *om)
 {
 	int i,rc;
@@ -267,6 +288,16 @@ out:
 	return rc;
 }
 
+/**
+ * Perform the data phase.
+ *
+ * @param conn the already established smtp connection
+ * @param account the account for whic the data phase should be processed.
+ * @param mailfile the name of the mail that should be send.
+ * @param cur_mail_size the number of bytes already sent (should accumulate
+ *  data of previously sent mails)
+ * @return 1 on success, 0 on failure.
+ */
 static int smtp_data(struct smtp_connection *conn, struct account *account, char *mailfile, int cur_mail_size)
 {
 	int rc = 0;
@@ -487,9 +518,13 @@ static int smtp_data(struct smtp_connection *conn, struct account *account, char
 	return rc;
 }
 
-/**************************************************************************
- Send the EHLO command (for ESMTP servers)
-**************************************************************************/
+/**
+ * Send the EHLO command (for ESMTP servers.
+ *
+ * @param conn the already established smtp connection
+ * @param account the account for which auth should be processed.
+ * @return 1 on success, 0 otherwise.
+ */
 int esmtp_ehlo(struct smtp_connection *conn, struct account *account)
 {
 	char dom[512];
@@ -591,65 +626,15 @@ static int esmtp_auth_cram(struct smtp_connection *conn, struct account *account
 	return rc == 235;
 }
 
-#if 0
-
-static int esmtp_auth_digest_md5(struct connection *conn, struct smtp_server *server)
-{
-	static char digest_str[] = "AUTH DIGEST-MD5\r\n";
-	char *line;
-	int rc;
-	char *challenge;
-	unsigned int challenge_len = (unsigned int)-1;
-	unsigned long digest[4]; /* 16 chars */
-	char buf[512];
-	char *encoded_str;
-	MD5_CTX context;
-
-	tcp_write(conn, digest_str,sizeof(digest_str)-1);
-
-	if (!(line = tcp_readln(conn))) return 0;
-	rc = atoi(line);
-	if (rc != 334) return 0;
-
-	if (!(challenge = decode_base64(line+4,strlen(line+4),&challenge_len)))
-		return 0;
-
-	strcpy(buf,challenge);
-	strcpy(buf+challenge_len,server->esmtp.auth_password);
-
-	free(challenge);
-  
-	MD5Init(&context);
-	MD5Update(&context, buf, strlen(buf));
-	MD5Final((char*)digest, &context);
-
-	sprintf(buf,"%s %08lx%08lx%08lx%08lx%c%c",server->esmtp.auth_login,
-					digest[0],digest[1],digest[2],digest[3],0,0); /* the same as above */
-
-	encoded_str = encode_base64(buf,strlen(buf));
-	if (!encoded_str) return 0;
-
-	tcp_write(conn,encoded_str,strlen(encoded_str));
-	tcp_write(conn,"\r\n",2);
-	free(encoded_str);
-
-	if (!(line = tcp_readln(conn))) return 0;
-	rc = atoi(line);
-	if (rc != 235)
-	{
-		tell_from_subtask("SMTP AUTH DIGEST-MD5 failed");
-	} else return 1;
-	return 0;
-}
-
-#endif
-
-
-/************************************************************
- Authentificate via AUTH commands. It tries all supported
- methods, starting at the strongest.
-************************************************************/
-int esmtp_auth(struct smtp_connection *conn, struct account *account)
+/**
+ * Authenticate via AUTH commands. It tries all supported
+ * methods, starting at the strongest.
+ *
+ * @param conn the already established smtp connection
+ * @param account the account for which auth should be processed.
+ * @return 1 on success, 0 otherwise.
+ */
+static int esmtp_auth(struct smtp_connection *conn, struct account *account)
 {
 	int flags, success;
 	char *buf, prep[1024];
@@ -663,12 +648,6 @@ int esmtp_auth(struct smtp_connection *conn, struct account *account)
 			return 1;
 	}
 	
-/*
-	if (flags & AUTH_DIGEST_MD5)
-	{
-		rc = esmtp_auth_digest_md5(conn, server);
-	}*/
-
 	if (flags & AUTH_LOGIN)
 	{
 		SM_DEBUGF(10,("Trying AUTH LOGIN\n"));
@@ -728,10 +707,14 @@ int esmtp_auth(struct smtp_connection *conn, struct account *account)
 	return 0;
 }
 
-/**************************************************************************
- Login into the (e)smtp server. After a succesfull call you
- can send the mails.
-**************************************************************************/
+/**
+ * Login into the (e)smtp server. After a succesfull call you
+ * can send the mails.
+ *
+ * @param conn
+ * @param account
+ * @return
+ */
 static int smtp_login(struct smtp_connection *conn, struct account *account)
 {
 	if (!smtp_service_ready(conn)) return 0;
@@ -797,9 +780,13 @@ static int smtp_login(struct smtp_connection *conn, struct account *account)
 	return 1;
 }
 
-/**************************************************************************
- Count the number of mails which belongs to the given account
-**************************************************************************/
+/**
+ * Count the number of mails which belongs to the given account
+ *
+ * @param account
+ * @param om
+ * @return
+ */
 static int count_mails(struct account *account, struct outmail **om)
 {
 	int amm=0;
@@ -814,9 +801,13 @@ static int count_mails(struct account *account, struct outmail **om)
 	return amm;
 }
 
-/**************************************************************************
- Count the number of mails which belongs to the given account
-**************************************************************************/
+/**
+ * Count the number of mails which belongs to the given account
+ *
+ * @param account
+ * @param om
+ * @return
+ */
 static int count_mails_size(struct account *account, struct outmail **om)
 {
 	int size=0;
@@ -831,9 +822,14 @@ static int count_mails_size(struct account *account, struct outmail **om)
 	return size;
 }
 
-/**************************************************************************
- Send all the mails which belongs to the account now.
-**************************************************************************/
+/**
+ * Send all the mails which belongs to the account now.
+ *
+ * @param conn
+ * @param account
+ * @param om
+ * @return
+ */
 static int smtp_send_mails(struct smtp_connection *conn, struct account *account, struct outmail **om)
 {
 	int i,j,amm,max_mail_size_sum,mail_size_sum = 0;
@@ -885,17 +881,24 @@ static int smtp_send_mails(struct smtp_connection *conn, struct account *account
 	return 1;
 }
 
-/**************************************************************************
- Send the QUIT command
-**************************************************************************/
+/**
+ * Send the QUIT command
+ *
+ * @param conn
+ * @return
+ */
 static int smtp_quit(struct smtp_connection *conn)
 {
 	return (smtp_send_cmd(conn, "QUIT", NULL) == SMTP_OK);
 }
 
-/**************************************************************************
- Send the mails now.
-**************************************************************************/
+/**
+ * Send the mails now.
+ *
+ * @param account_list
+ * @param outmail
+ * @return
+ */
 static int smtp_send_really(struct list *account_list, struct outmail **outmail)
 {
 	int rc = 0;
@@ -923,14 +926,19 @@ static int smtp_send_really(struct list *account_list, struct outmail **outmail)
 			if (account->smtp->pop3_first)
 			{
 				/* Connect to the pop3 server first */
-				sprintf(head_buf,_("Sending mails to %s, connecting to %s first"),account->smtp->name,account->pop->name);
+
+				struct pop3_dl_callbacks callbacks = {0};
+
+				callbacks.set_status_static = status_set_status;
+
+				sm_snprintf(head_buf,sizeof(head_buf),_("Sending mails to %s, connecting to %s first"),account->smtp->name,account->pop->name);
 				thread_call_parent_function_async_string(status_set_head, 1, head_buf);
 
 				thread_call_function_async(thread_get_main(),status_set_status,1,_("Log into POP3 Server...."));
-				pop3_login_only(account->pop);
+				pop3_login_only(account->pop, &callbacks);
 			}
 
-			sprintf(head_buf,_("Sending mails to %s"),account->smtp->name);
+			sm_snprintf(head_buf,sizeof(head_buf),_("Sending mails to %s"),account->smtp->name);
 			thread_call_parent_function_async_string(status_set_head, 1, head_buf);
 			thread_call_parent_function_async_string(status_set_connect_to_server,1,account->smtp->name);
 
@@ -998,6 +1006,8 @@ static int smtp_send_really(struct list *account_list, struct outmail **outmail)
 	return rc;
 }
 
+/*****************************************************************************/
+
 struct smtp_entry_msg
 {
 	struct list *account_list;
@@ -1005,9 +1015,11 @@ struct smtp_entry_msg
 	char *folder_path;
 };
 
-/**************************************************************************
- Entrypoint for the send mail process
-**************************************************************************/
+/**
+ * Entry point for the send mail process
+ * @param msg
+ * @return
+ */
 static int smtp_entry(struct smtp_entry_msg *msg)
 {
 	struct list copy_of_account_list;
@@ -1047,34 +1059,23 @@ static int smtp_entry(struct smtp_entry_msg *msg)
 	return 0;
 }
 
-/**************************************************************************
- Send the mails. Starts a subthread.
-**************************************************************************/
-int smtp_send(struct list *account_list, struct outmail **outmail, char *folder_path)
+/*****************************************************************************/
+
+int smtp_send(struct smtp_send_options *options)
 {
 	int rc;
-//	char path[256];
 	struct smtp_entry_msg msg; /* should be not onto stack */
 
-	msg.account_list = account_list;
-	msg.outmail = outmail;
-	msg.folder_path = folder_path;
-
-//	getcwd(path, sizeof(path));
-//	if (chdir(folder_path) == -1)
-//		return 0;
+	msg.account_list = options->account_list;
+	msg.outmail = options->outmail;
+	msg.folder_path = options->folder_path;
 
 	rc = thread_start(THREAD_FUNCTION(smtp_entry),&msg);
-// 	chdir(path);
 	return rc;
 }
 
-/**************************************************************************
- Creates a array of outmails with amm entries.
- The array entries point already to the struct outmail *.
- Use free() only on the result of this call not on the entries,
- or better use only free_outmail_array().
-**************************************************************************/
+/*****************************************************************************/
+
 struct outmail **create_outmail_array(int amm)
 {
 	int memsize;
@@ -1094,9 +1095,8 @@ struct outmail **create_outmail_array(int amm)
 	return newom;
 }
 
-/**************************************************************************
- Duplplicates an array of outmails.
-**************************************************************************/
+/*****************************************************************************/
+
 struct outmail **duplicate_outmail_array(struct outmail **om_array)
 {
 	int amm = 0;
@@ -1119,9 +1119,8 @@ struct outmail **duplicate_outmail_array(struct outmail **om_array)
 	return newom_array;
 }
 
-/**************************************************************************
- Frees an array ou outmails completly
-**************************************************************************/
+/*****************************************************************************/
+
 void free_outmail_array(struct outmail **om_array)
 {
 	struct outmail *om;
@@ -1135,9 +1134,8 @@ void free_outmail_array(struct outmail **om_array)
 	free(om_array);
 }
 
-/**************************************************************************
- Creates a new smrp server
-**************************************************************************/
+/*****************************************************************************/
+
 struct smtp_server *smtp_malloc(void)
 {
 	struct smtp_server *smtp = (struct smtp_server*)malloc(sizeof(struct smtp_server));
@@ -1149,9 +1147,8 @@ struct smtp_server *smtp_malloc(void)
 	return smtp;
 }
 
-/**************************************************************************
- Duplocates an existing smtp server
-**************************************************************************/
+/*****************************************************************************/
+
 struct smtp_server *smtp_duplicate(struct smtp_server *smtp)
 {
 	struct smtp_server *new_smtp = smtp_malloc();
@@ -1164,9 +1161,8 @@ struct smtp_server *smtp_duplicate(struct smtp_server *smtp)
 	return new_smtp;
 }
 
-/**************************************************************************
- Free's an smtp server
-**************************************************************************/
+/*****************************************************************************/
+
 void smtp_free(struct smtp_server *smtp)
 {
 	if (smtp->auth_password) free(smtp->auth_password);

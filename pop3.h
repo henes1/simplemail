@@ -23,6 +23,10 @@
 #ifndef POP3_H
 #define POP3_H
 
+#include "lists.h"
+
+struct mail_info;
+
 /**
  * @brief The settings for a POP3 server
  */
@@ -40,26 +44,82 @@ struct pop3_server
 	char *passwd; /**< @brief the password */
 	int del; /**< @brief 1 if downloaded mails should be deleted */
 	int nodupl; /**< @brief 1 if duplicates should be avoided */
-	int active; /**< @brief is this pop server actove */
+	int active; /**< @brief is this pop server active */
 	int ask; /**< @brief ask for login/password */
-	char *title; /**< @brief normaly NULL, will hold a copy of account->account_name while fetching mails */
+	char *title; /**< @brief normally NULL, will hold a copy of account->account_name while fetching mails */
+};
+
+struct pop3_dl_callbacks
+{
+	void (*set_status_static)(const char *str);
+	void (*set_status)(const char *);
+	void (*set_connect_to_server)(const char *server);
+	void (*set_head)(const char *head);
+	void (*set_title_utf8)(const char *title);
+	void (*set_title)(const char *title);
+	void (*init_gauge_as_bytes)(int maximal);
+	void (*set_gauge)(int value);
+	void (*init_mail)(int maximal);
+	void (*set_mail)(int current, int current_size);
+	int (*request_login)(char *text, char *login, char *password, int len);
+	void (*mail_list_clear)(void);
+	void (*mail_list_freeze)(void);
+	void (*mail_list_thaw)(void);
+	void (*mail_list_insert)(int mno, int mflags, int msize);
+	int (*mail_list_get_flags)(int mno);
+	void (*mail_list_set_flags)(int mno, int mflags);
+	void (*mail_list_set_info)(int mno, char *from, char *subject, char *date);
+	int (*mail_ignore)(struct mail_info *info);
+	int (*more_statitics)(void);
+	void (*new_mail_arrived_filename)(char *filename, int is_spam);
+	int (*skip_server)(void);
+	void (*number_of_mails_downloaded)(int mails);
+	int (*wait)(void (*period_callback)(void *arg), void *arg, int millis);
+};
+
+struct pop3_dl_options
+{
+	/** the list of pop3_server connections to check. */
+	struct list *pop_list;
+
+	/** the drawer where to put the downloaded files (incoming folder). */
+	char *dest_dir;
+
+	/** the receive preselection */
+	int receive_preselection;
+
+	/** the receive size */
+	int receive_size;
+
+	/** Don't bother the user with which mails to be downloaded */
+	int quiet;
+
+	/** whether remote filters should be applied */
+	int has_remote_filter;
+
+	/** the root directories of the folders */
+	char *folder_directory;
+
+	/** whether spam identification should be applied. */
+	int auto_spam;
+
+	/** list of email addresses that shall be not considered as spam */
+	char **white;
+
+	/** list of email addresses that shall be considered as spam */
+	char **black;
+
+	/** callbacks called during some operations */
+	struct pop3_dl_callbacks callbacks;
 };
 
 /**
  * Download the mails in the context of the current thread.
  *
- * @param pop_list the list of pop3_server connections to check.
- * @param dest_dir the drawer where to put the downloaded files (incoming folder).
- * @param receive_preselection the receive preselection
- * @param receive_size the receive size
- * @param has_remote_filter whether remote filters should be applied
- * @param folder_directory the root directories of the folders
- * @param auto_spam whether spam identification should be applied.
- * @param white list of email addresses that shall be not considered as spam
- * @param black list of email addresses that shall be considered as spam
+ * @param dl_options options for downloading
  * @return success or not.
  */
-int pop3_really_dl(struct list *pop_list, char *dest_dir, int receive_preselection, int receive_size, int has_remote_filter, char *folder_directory, int auto_spam, char **white, char **black);
+int pop3_really_dl(struct pop3_dl_options *dl_options);
 
 /**
  * @brief Log in and log out into a POP3 server as given by the @p server parameter.
@@ -68,10 +128,12 @@ int pop3_really_dl(struct list *pop_list, char *dest_dir, int receive_preselecti
  * requires prior POP3 server logins.
  *
  * @param server defines the connection details of the POP3 server.
+ * @param callbacks defines callbacks. The set_status_static is the only
+ *  necessary one.
  * @return 1 on sucess, 0 on failure.
  * @note Assumes to be run in a sub thread (i.e., not SimpleMail's main thread)
  */
-int pop3_login_only(struct pop3_server *);
+int pop3_login_only(struct pop3_server *server, struct pop3_dl_callbacks *callbacks);
 
 /**
  * @brief Construct a new instance holding POP3 server settings.
