@@ -51,8 +51,6 @@
 
 /*****************************************************************************/
 
-/* Callbacks, mostly for pop3 for now */
-
 static void trans_set_status(const char *str)
 {
 	thread_call_parent_function_async_string(status_set_status, 1, str);
@@ -171,6 +169,31 @@ static void trans_number_of_mails_downloaded(int nummails)
 static int trans_wait(void (*period_callback)(void *arg), void *arg, int millis)
 {
 	return thread_call_parent_function_sync_timer_callback(period_callback, arg, millis, status_wait,0);
+}
+
+static void trans_mail_has_not_been_sent(char *filename)
+{
+	thread_call_parent_function_async_string(callback_mail_has_not_been_sent,1,filename);
+}
+
+static void trans_mail_has_been_sent(char *filename)
+{
+	thread_call_parent_function_async_string(callback_mail_has_been_sent,1,filename);
+}
+
+static void trans_add_imap_folder(char *user, char *server, char *path)
+{
+	thread_call_parent_function_sync(NULL,callback_add_imap_folder,3, user, server, path);
+}
+
+static void trans_refresh_folders(void)
+{
+	thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
+}
+
+static void trans_new_imap_mail_arrived(char *filename, char *user, char *server, char *path)
+{
+	thread_call_parent_function_sync(NULL,callback_new_imap_mail_arrived, 4, filename, user, server, path);
 }
 
 /*****************************************************************************/
@@ -296,6 +319,7 @@ static int mails_dl_entry(struct mails_dl_msg *msg)
 	if (thread_parent_task_can_contiue())
 	{
 		struct pop3_dl_options dl_options = {0};
+		struct imap_synchronize_options imap_sync_options = {0};
 
 		thread_call_function_async(thread_get_main(),status_init,1,0);
 		if (called_by_auto) thread_call_function_async(thread_get_main(),status_open_notactivated,0);
@@ -336,12 +360,27 @@ static int mails_dl_entry(struct mails_dl_msg *msg)
 		dl_options.callbacks.number_of_mails_downloaded = trans_number_of_mails_downloaded;
 		dl_options.callbacks.wait = trans_wait;
 
+		imap_sync_options.imap_list = &imap_list;
+		imap_sync_options.quiet = called_by_auto;
+		imap_sync_options.callbacks.set_connect_to_server = trans_set_connect_to_server;
+		imap_sync_options.callbacks.set_title = trans_set_title;
+		imap_sync_options.callbacks.set_title_utf8 = trans_set_title_utf8;
+		imap_sync_options.callbacks.set_status = trans_set_status;
+		imap_sync_options.callbacks.set_status_static = trans_set_status_static;
+		imap_sync_options.callbacks.set_head = trans_set_head;
+		imap_sync_options.callbacks.request_login = trans_request_login;
+		imap_sync_options.callbacks.add_imap_folder = trans_add_imap_folder;
+		imap_sync_options.callbacks.refresh_folders = trans_refresh_folders;
+		imap_sync_options.callbacks.init_gauge_as_bytes = trans_init_gauge_as_bytes;
+		imap_sync_options.callbacks.set_gauge = trans_set_gauge;
+		imap_sync_options.callbacks.new_mail_arrived = trans_new_imap_mail_arrived;
+
 		if (pop3_really_dl(&dl_options))
 		{
-			imap_synchronize_really(&imap_list, called_by_auto);
+			imap_synchronize_really(&imap_sync_options);
 		} else if (single_account)
 		{
-			imap_synchronize_really(&imap_list, called_by_auto);
+			imap_synchronize_really(&imap_sync_options);
 		}
 
 		thread_call_function_async(thread_get_main(),status_close,0);
@@ -361,22 +400,110 @@ static int mails_dl_entry(struct mails_dl_msg *msg)
 	return 1;
 }
 
+/*****************************************************************************/
+
 int mails_dl(int called_by_auto)
 {
-	struct mails_dl_msg msg;
+	struct mails_dl_msg msg = {0};
 	msg.called_by_auto = called_by_auto;
-	msg.single_account = NULL;
 	msg.iconified = main_is_iconified();
 	return thread_start(THREAD_FUNCTION(&mails_dl_entry),&msg);
 }
 
+/*****************************************************************************/
+
 int mails_dl_single_account(struct account *ac)
 {
-	struct mails_dl_msg msg;
-	msg.called_by_auto = 0;
+	struct mails_dl_msg msg = {0};
 	msg.single_account = ac;
 	return thread_start(THREAD_FUNCTION(&mails_dl_entry),&msg);
 }
+
+/*****************************************************************************/
+
+struct mails_upload_entry_msg
+{
+	struct outmail **out_array;
+	struct list *account_list;
+	char *folder_path;
+};
+
+/**
+ * Entry point for the send mail process
+ * @param msg
+ * @return
+ */
+static int mails_upload_entry(struct mails_upload_entry_msg *msg)
+{
+	struct list copy_of_account_list;
+	struct account *account;
+	struct outmail **outmail;
+	char path[256];
+	char *outgoing_folder_path;
+
+	list_init(&copy_of_account_list);
+
+	for (account = (struct account*)list_first(msg->account_list);account;account = (struct account*)node_next(&account->node))
+	{
+		struct account *new_account;
+		if (!account->smtp || !account->smtp->name) continue;
+
+		new_account = account_duplicate(account);
+		if (new_account) list_insert_tail(&copy_of_account_list,&new_account->node);
+	}
+
+	if (!(outmail = duplicate_outmail_array(msg->out_array)))
+		goto out;
+	if (!((outgoing_folder_path = mystrdup(msg->folder_path))))
+		goto out;
+
+	if (getcwd(path, sizeof(path)))
+	{
+		if (chdir(outgoing_folder_path) == 0)
+		{
+			if (thread_parent_task_can_contiue())
+			{
+				struct smtp_send_options smtp_send_options = {0};
+
+				smtp_send_options.account_list = &copy_of_account_list;
+				smtp_send_options.outmail = outmail;
+				smtp_send_options.callbacks.set_status_static = trans_set_status_static;
+				smtp_send_options.callbacks.set_connect_to_server = trans_set_connect_to_server;
+				smtp_send_options.callbacks.set_head = trans_set_head;
+				smtp_send_options.callbacks.set_title = trans_set_title;
+				smtp_send_options.callbacks.set_title_utf8 = trans_set_title_utf8;
+				smtp_send_options.callbacks.skip_server = trans_skip_server;
+				smtp_send_options.callbacks.init_mail = trans_init_mail;
+				smtp_send_options.callbacks.set_mail = trans_set_mail;
+				smtp_send_options.callbacks.init_gauge_as_bytes = trans_init_gauge_as_bytes;
+				smtp_send_options.callbacks.set_gauge = trans_set_gauge;
+				smtp_send_options.callbacks.mail_has_not_been_sent = trans_mail_has_not_been_sent;
+				smtp_send_options.callbacks.mail_has_been_sent = trans_mail_has_been_sent;
+
+				thread_call_function_async(thread_get_main(),status_init,1,0);
+				thread_call_function_async(thread_get_main(),status_open,0);
+				smtp_send_really(&smtp_send_options);
+				thread_call_function_async(thread_get_main(),status_close,0);
+			}
+
+			chdir(path);
+		}
+	}
+out:
+	return 0;
+}
+/**
+ * Send the mails. Starts a subthread.
+ *
+ * @param send_options options for sending.
+ * @return 0 for failure, 1 for success.
+ */
+static int mails_upload_async(struct mails_upload_entry_msg *msg)
+{
+	return thread_start(THREAD_FUNCTION(mails_upload_entry),msg);
+}
+
+/*****************************************************************************/
 
 int mails_upload(void)
 {
@@ -387,7 +514,7 @@ int mails_upload(void)
 	int i,num_mails;
 	char path[512];
 
-	struct smtp_send_options options = {0};
+	struct mails_upload_entry_msg msg = {0};
 
 	/* count the number of mails which could be be sent */
 	num_mails = 0;
@@ -514,17 +641,17 @@ int mails_upload(void)
 	chdir(path);
 	
 	/* now send all mails */
-	options.account_list = &user.config.account_list;
-	options.outmail = out_array;
-	options.folder_path = out_folder->path;
-	smtp_send(&options);
+	msg.folder_path = out_folder->path;
+	msg.out_array = out_array;
+	mails_upload_async(&msg);
 
 	free_outmail_array(out_array);
 	return 1;
 }
 
-/* Note: Assumes that the chdir is the dir where m->filename is located */
-int mails_upload_signle(struct mail_info *mi)
+/*****************************************************************************/
+
+int mails_upload_single(struct mail_info *mi)
 {
 	char *from, *to, *cc, *bcc;
 	struct outmail **out_array;
@@ -533,7 +660,7 @@ int mails_upload_signle(struct mail_info *mi)
 	struct address_list *list; /* "To" address list */
 	struct folder *out_folder = folder_outgoing();
 
-	struct smtp_send_options options = {0};
+	struct mails_upload_entry_msg msg = {0};
 
 	if (!mi) return 0;
 	if (!(out_array = create_outmail_array(1))) return 0;
@@ -622,10 +749,10 @@ int mails_upload_signle(struct mail_info *mi)
 /*		if (mb.addr_spec) free(mb.addr_spec); */
 
 	/* Send the mail now */
-	options.account_list = &user.config.account_list;
-	options.outmail = out_array;
-	options.folder_path = out_folder->path;
-	smtp_send(&options);
+	msg.folder_path = out_folder->path;
+	msg.account_list = &user.config.account_list;
+	msg.out_array = out_array;
+	mails_upload_async(&msg);
 
 	free_outmail_array(out_array);
 	mail_complete_free(m);

@@ -97,6 +97,22 @@ struct smtp_server
 };
 
 
+struct smtp_send_callbacks
+{
+	void (*set_status_static)(const char *str);
+	void (*set_connect_to_server)(const char *server);
+	void (*set_head)(const char *head);
+	void (*set_title_utf8)(const char *title);
+	void (*set_title)(const char *title);
+	void (*init_gauge_as_bytes)(int maximal);
+	void (*set_gauge)(int value);
+	void (*init_mail)(int maximal);
+	void (*set_mail)(int current, int current_size);
+	int (*skip_server)(void);
+	void (*mail_has_not_been_sent)(char *filename);
+	void (*mail_has_been_sent)(char *filename);
+};
+
 struct smtp_send_options
 {
 	/** List of all accounts from which to sent */
@@ -105,17 +121,17 @@ struct smtp_send_options
 	/** Array of all mails to be send */
 	struct outmail **outmail;
 
-	/** The common of the folders */
-	char *folder_path;
+	/** callbacks called during some operations */
+	struct smtp_send_callbacks callbacks;
 };
 
 /**
- * Send the mails. Starts a subthread.
+ * Send the mails in the context of the calling thread.
  *
- * @param send_options options for sending.
- * @return 0 for failure, 1 for success.
+ * @param options further options for the send operation.
+ * @return 1 on success, 0 otherwise.
  */
-int smtp_send(struct smtp_send_options *send_options);
+int smtp_send_really(struct smtp_send_options *options);
 
 /**
  * Creates a new smtp server description.

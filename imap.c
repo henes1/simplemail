@@ -21,7 +21,6 @@
  * @brief Provides IMAP4 support.
  *
  * Functions in this file are responsible for the communication with IMAP4 servers.
- * The communications happens in a separate thread of name #IMAP_THREAD_NAME.
  *
  * @file imap.c
  */
@@ -57,11 +56,6 @@
 #endif
 
 #define MIN(a,b) ((a)<(b)?(a):(b))
-
-/**
- * The name of the IMAP thread.
- */
-#define IMAP_THREAD_NAME "SimpleMail - IMAP thread"
 
 /**
  * Maximum number of mails that can be hold before a refresh is invoked
@@ -195,19 +189,6 @@ static void imap_delete_orphan_messages(struct local_mail *local_mail_array, int
 	}
 
 	SM_LEAVE;
-}
-
-
-
-/**
- * Frees the given name list
- * @param list
- */
-static void imap_free_name_list(struct string_list *list)
-{
-	if (!list) return;
-	string_list_clear(list);
-	free(list);
 }
 
 /**
@@ -439,15 +420,28 @@ static void imap_free_remote_mailbox(struct remote_mailbox *rm)
 	free(rm);
 }
 
+struct imap_select_mailbox_args
+{
+	/** The already established connection */
+	struct connection *conn;
+
+	/** The utf8 encoded path of the mailbox to be selected */
+	char *path;
+
+	/** Whether mailbox should be selected in write mode */
+	int writemode;
+
+	void (*set_status_static)(const char *str);
+	void (*set_status)(const char *str);
+};
+
 /**
  * Selects the given mailbox (as identified by path).
  *
- * @param conn defines the connection
- * @param path defines the utf8 encoded path
- * @param writemode whether mailbox should be selected in mailbox.
- * @return a rmemote_mailbox. Field remote_mail_array will be NULL.
+ * @param args defines arguments and options.
+ * @return a remote_mailbox for further processing. Field remote_mail_array will be NULL.
  */
-static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char *path, int writemode)
+static struct remote_mailbox *imap_select_mailbox(struct imap_select_mailbox_args *args)
 {
 	struct remote_mailbox *rm;
 
@@ -457,6 +451,10 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
 	char tag[20];
 	char *line;
 	int success = 0;
+
+	struct connection *conn = args->conn;
+	char *path = args->path;
+	int writemode = args->writemode;
 
 	unsigned int uid_validity = 0; /* Note that valid uids are non-zero */
 	unsigned int uid_next = 0;
@@ -468,7 +466,7 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
 	memset(rm,0,sizeof(*rm));
 
 	sm_snprintf(status_buf,sizeof(status_buf),_("Examining folder %s"),path);
-	thread_call_parent_function_sync(NULL,status_set_status,1,status_buf);
+	args->set_status(status_buf);
 
 	sprintf(tag,"%04x",val++);
 	sm_snprintf(send,sizeof(send),"%s %s \"%s\"\r\n",tag,writemode?"SELECT":"EXAMINE",path);
@@ -520,7 +518,7 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
 	if (success)
 	{
 		sm_snprintf(status_buf,sizeof(status_buf),_("Identified %d mails in %s"),num_of_remote_mails,path);
-		thread_call_parent_function_async_string(status_set_status,1,status_buf);
+		args->set_status(status_buf);
 		SM_DEBUGF(10,("Identified %d mails in %s (uid_validity=%u, uid_next=%u)\n",num_of_remote_mails,path,uid_validity,uid_next));
 
 		rm->uid_next = uid_next;
@@ -528,7 +526,7 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
 		rm->num_of_remote_mail = num_of_remote_mails;
 	} else
 	{
-		thread_call_function_async(thread_get_main(),status_set_status,1,N_("Failed examining the folder"));
+		args->set_status_static(N_("Failed examining the folder"));
 		SM_DEBUGF(10,("Failed examining the folder\n"));
 		free(rm);
 		rm = NULL;
@@ -537,6 +535,39 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
 	free(path);
 	return rm;
 }
+
+struct imap_get_remote_mails_args
+{
+	/** The already opened imap connection after successful login */
+	struct connection *conn;
+
+	/**
+	 * Defines the remote path or mailbox from which the mail infos should be
+	 * gathered
+	 */
+	char *path;
+
+	/** Whether the mailbox should be opened in write mode */
+	int writemode;
+
+	/** Whether als the mail headers should be downloaded */
+	int headers;
+
+	/**
+	 * Defines the uid of first mail to be downloaded. Zero means that all mails
+	 * should be downloaded (uid_end is ignored).
+	 */
+	unsigned int uid_start;
+
+	/**
+	 * Defines the uid of the final mail to be downloaded. Zero means that all mails
+	 * should be downloaded (uid_end is ignored).
+	 */
+	unsigned int uid_end;
+
+	void (*set_status_static)(const char *str);
+	void (*set_status)(const char *str);
+};
 
 /**
  * Read information of all mails in the given path. Put
@@ -556,7 +587,7 @@ static struct remote_mailbox *imap_select_mailbox(struct connection *conn, char 
  * @note the given path stays in the selected/examine state.
  * @note the returned structure must be free with imap_free_remote_mailbox()
  */
-static struct remote_mailbox *imap_get_remote_mails(struct connection *conn, char *path, int writemode, int headers, unsigned int uid_start, unsigned int uid_end)
+static struct remote_mailbox *imap_get_remote_mails(struct imap_get_remote_mails_args *args)
 {
 	/* get number of remote mails */
 	char *line;
@@ -568,9 +599,24 @@ static struct remote_mailbox *imap_get_remote_mails(struct connection *conn, cha
 	struct remote_mail *remote_mail_array = NULL;
 	struct remote_mailbox *rm;
 
+	struct connection *conn = args->conn;
+	char *path = args->path;
+	int writemode = args->writemode;
+	int headers = args->headers;
+	unsigned int uid_start = args->uid_start;
+	unsigned int uid_end = args->uid_end;
+
+	struct imap_select_mailbox_args select_mailbox_args = {0};
+
 	SM_ENTER;
 
-	if (!(rm = imap_select_mailbox(conn,path,writemode)))
+	select_mailbox_args.conn = conn;
+	select_mailbox_args.path = path;
+	select_mailbox_args.writemode = writemode;
+	select_mailbox_args.set_status = args->set_status;
+	select_mailbox_args.set_status_static = args->set_status_static;
+
+	if (!(rm = imap_select_mailbox(&select_mailbox_args)))
 	{
 		SM_RETURN(NULL,"%p");
 		return NULL;
@@ -813,7 +859,7 @@ static struct string_list *imap_get_folders(struct connection *conn, int all)
 
 	if (ok) return list;
 
-	imap_free_name_list(list);
+	string_list_free(list);
 	return NULL;
 }
 
@@ -823,9 +869,10 @@ static struct string_list *imap_get_folders(struct connection *conn, int all)
  * @param conn
  * @param server
  * @param imap_path
- * @return
+ * @param callbacks
+ * @return 1 on success, 0 for failure.
  */
-static int imap_synchonize_folder(struct connection *conn, struct imap_server *server, char *imap_path)
+static int imap_synchonize_folder(struct connection *conn, struct imap_server *server, char *imap_path, struct imap_synchronize_callbacks *callbacks)
 {
 	struct folder *folder;
 	int success = 0;
@@ -873,9 +920,16 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 			char buf[100];
 			char status_buf[200];
 
+			struct imap_get_remote_mails_args args = {0};
+
+			args.conn = conn;
+			args.path = folder->imap_path;
+
 			if (num_of_todel_local_mails)
 			{
-				if ((rm = imap_get_remote_mails(conn, folder->imap_path, 1, 0, 0, 0)))
+				args.writemode = 1;
+
+				if ((rm = imap_get_remote_mails(&args)))
 				{
 					struct remote_mail *remote_mail_array;
 					int num_of_remote_mails;
@@ -885,7 +939,7 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 					num_of_remote_mails = rm->num_of_remote_mail;
 
 					sm_snprintf(status_buf,sizeof(status_buf),_("Removing %d mails from server"),num_of_todel_local_mails);
-					thread_call_parent_function_async_string(status_set_status, 1, status_buf);
+					callbacks->set_status(status_buf);
 
 					for (i = 0 ; i < num_of_local_mails; i++)
 					{
@@ -942,8 +996,10 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 				}
 			}
 
+			args.writemode = 0;
+
 			/* Get information of all mails within the folder */
-			if ((rm = imap_get_remote_mails(conn, folder->imap_path, 0, 0, 0, 0)))
+			if ((rm = imap_get_remote_mails(&args)))
 			{
 				int i,j;
 				unsigned int max_todl_bytes = 0;
@@ -996,14 +1052,14 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 
 				/* Assume everything is fine */
 				success = 1;
-				thread_call_function_async(thread_get_main(),status_init_gauge_as_bytes,1,max_todl_bytes);
+				callbacks->init_gauge_as_bytes(max_todl_bytes);
 
 				for (i=0;i<num_msgs_to_dl;i++)
 				{
 					accu_todl_bytes += remote_mail_array[i].size;
 
 					sm_snprintf(status_buf,sizeof(status_buf),_("Fetching mail %d from server"),remote_mail_array[i].flags + 1);
-					thread_call_parent_function_async_string(status_set_status,1,status_buf);
+					callbacks->set_status(status_buf);
 
 					sprintf(tag,"%04x",val++);
 					sprintf(send,"%s FETCH %d RFC822\r\n",tag,remote_mail_array[i].flags+1); /* We could also use the UID command */
@@ -1057,12 +1113,12 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 
 											if (dl == -1 || !dl) break;
 											todl_bytes = MIN(accu_todl_bytes,todl_bytes + dl);
-											thread_call_function_async(thread_get_main(),status_set_gauge, 1, todl_bytes);
+											callbacks->set_gauge(todl_bytes);
 											fwrite(buf,1,dl,fh);
 											todownload -= dl;
 										}
 										fclose(fh);
-										thread_call_parent_function_sync(NULL,callback_new_imap_mail_arrived, 4, filename_buf, server->login, server->name, imap_path);
+										callbacks->new_mail_arrived(filename_buf, server->login, server->name, imap_path);
 									}
 								}
 							}
@@ -1071,8 +1127,7 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 
 					if (!success) break;
 					todl_bytes = accu_todl_bytes;
-					/* TODO: should be enforced */
-					thread_call_function_async(thread_get_main(),status_set_gauge, 1, todl_bytes);
+					callbacks->set_gauge(todl_bytes);
 				}
 
 				imap_free_remote_mailbox(rm);
@@ -1087,161 +1142,170 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 }
 
 /**
- * Synchronize with all imap severs in the given list.
+ * Synchronize a single imap account.
  *
- * This is a synchronous function, it should not be called directly within the main thread.
- *
- * @param imap_list
- * @param called_by_auto
+ * @param imap_server
+ * @param options
+ * @return 0 for failure, 1 for success.
+ * @note 0 currently means abort.
  */
-void imap_synchronize_really(struct list *imap_list, int called_by_auto)
+static int imap_synchronize_really_single(struct imap_server *server, struct imap_synchronize_callbacks *callbacks)
 {
-	SM_ENTER;
+	struct connection *conn;
+	struct connect_options conn_opts = {0};
+	char head_buf[100];
+	int error_code;
 
-	if (open_socket_lib())
+	SM_DEBUGF(10,("Synchronizing with server \"%s\"\n",server->name));
+
+	sm_snprintf(head_buf,sizeof(head_buf),_("Synchronizing mails with %s"),server->name);
+	callbacks->set_head(head_buf);
+	if (server->title)
+		callbacks->set_title_utf8(server->title);
+	else
+		callbacks->set_title(server->name);
+	callbacks->set_connect_to_server(server->name);
+
+	/* Ask for the login/password */
+	if (server->ask)
 	{
-		struct imap_server *server = (struct imap_server*)list_first(imap_list);
+		char *password = (char*)malloc(512);
+		char *login = (char*)malloc(512);
 
-		for( ;server; server = (struct imap_server*)node_next(&server->node))
+		if (password && login)
 		{
-			struct connection *conn;
-			struct connect_options conn_opts = {0};
-			char head_buf[100];
-			int error_code;
+			int rc;
 
-			SM_DEBUGF(10,("Synchronizing with server \"%s\"\n",server->name));
+			if (server->login) mystrlcpy(login,server->login,512);
+			password[0] = 0;
 
-			sm_snprintf(head_buf,sizeof(head_buf),_("Synchronizing mails with %s"),server->name);
-			thread_call_parent_function_async_string(status_set_head, 1, head_buf);
-			if (server->title)
-				thread_call_parent_function_async_string(status_set_title_utf8, 1, server->title);
-			else
-				thread_call_parent_function_async_string(status_set_title, 1, server->name);
-			thread_call_parent_function_async_string(status_set_connect_to_server, 1, server->name);
-
-			/* Ask for the login/password */
-			if (server->ask)
+			if ((rc = callbacks->request_login(server->name,login,password,512)))
 			{
-				char *password = (char*)malloc(512);
-				char *login = (char*)malloc(512);
-
-				if (password && login)
-				{
-					int rc;
-
-					if (server->login) mystrlcpy(login,server->login,512);
-					password[0] = 0;
-
-					if ((rc = thread_call_parent_function_sync(NULL,sm_request_login,4,server->name,login,password,512)))
-					{
-						server->login = mystrdup(login);
-						server->passwd = mystrdup(password);
-					}
-				}
-
-				free(password);
-				free(login);
+				server->login = mystrdup(login);
+				server->passwd = mystrdup(password);
 			}
+		}
 
-			conn_opts.use_ssl = server->ssl && !server->starttls;
-			conn_opts.fingerprint = server->fingerprint;
+		free(password);
+		free(login);
+	}
 
-			SM_DEBUGF(10,("Connecting\n"));
-			if ((conn = tcp_connect(server->name, server->port, &conn_opts, &error_code)))
+	conn_opts.use_ssl = server->ssl && !server->starttls;
+	conn_opts.fingerprint = server->fingerprint;
+
+	SM_DEBUGF(10,("Connecting\n"));
+	if ((conn = tcp_connect(server->name, server->port, &conn_opts, &error_code)))
+	{
+		callbacks->set_status_static(_("Waiting for login..."));
+		SM_DEBUGF(10,("Waiting for login\n"));
+		if (imap_wait_login(conn,server))
+		{
+			callbacks->set_status_static(_("Login..."));
+			SM_DEBUGF(10,("Login\n"));
+			if (imap_login(conn,server))
 			{
-				thread_call_function_async(thread_get_main(),status_set_status,1,_("Waiting for login..."));
-				SM_DEBUGF(10,("Waiting for login\n"));
-				if (imap_wait_login(conn,server))
+				struct string_list *folder_list;
+				callbacks->set_status_static(_("Login successful"));
+				callbacks->set_status_static(_("Checking for folders"));
+
+				SM_DEBUGF(10,("Get folders\n"));
+				if ((folder_list = imap_get_folders(conn,0)))
 				{
-					thread_call_function_async(thread_get_main(),status_set_status,1,_("Login..."));
-					SM_DEBUGF(10,("Login\n"));
-					if (imap_login(conn,server))
+					struct string_node *node;
+
+					/* add the folders */
+					node = string_list_first(folder_list);
+					while (node)
 					{
-						struct string_list *folder_list;
-						thread_call_function_async(thread_get_main(),status_set_status,1,_("Login successful"));
-						thread_call_function_async(thread_get_main(),status_set_status,1,_("Checking for folders"));
-
-						SM_DEBUGF(10,("Get folders\n"));
-						if ((folder_list = imap_get_folders(conn,0)))
-						{
-							struct string_node *node;
-
-							/* add the folders */
-							node = string_list_first(folder_list);
-							while (node)
-							{
-								thread_call_parent_function_sync(NULL,callback_add_imap_folder,3,server->login,server->name,node->string);
-								node = (struct string_node*)node_next(&node->node);
-							}
-							thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
-
-							/* sync the folders */
-							node = string_list_first(folder_list);
-							while (node)
-							{
-								if (!(imap_synchonize_folder(conn, server, node->string)))
-									break;
-								node = (struct string_node*)node_next(&node->node);
-							}
-
-							imap_free_name_list(folder_list);
-						}
-					} else
-					{
-						thread_call_function_async(thread_get_main(),status_set_status,1,_("Login failed!"));
-						tell_from_subtask(N_("Authentication failed!"));
+						callbacks->add_imap_folder(server->login,server->name,node->string);
+						node = (struct string_node*)node_next(&node->node);
 					}
-				}
-				tcp_disconnect(conn);
+					callbacks->refresh_folders();
 
-				if (thread_aborted()) break;
+					/* sync the folders */
+					node = string_list_first(folder_list);
+					while (node)
+					{
+						if (!(imap_synchonize_folder(conn, server, node->string, callbacks)))
+							break;
+						node = (struct string_node*)node_next(&node->node);
+					}
+
+					string_list_free(folder_list);
+				}
 			} else
 			{
-				SM_DEBUGF(10,("Unable to connect\n"));
-				if (thread_aborted()) break;
-				else tell_from_subtask((char*)tcp_strerror(error_code));
+				callbacks->set_status_static(_("Login failed!"));
+				tell_from_subtask(N_("Authentication failed!"));
 			}
-
-			/* Clear the preselection entries */
-			thread_call_parent_function_sync(NULL,status_mail_list_clear,0);
 		}
-		close_socket_lib();
+		tcp_disconnect(conn);
+
+		if (thread_aborted()) return 0;
+	} else
+	{
+		SM_DEBUGF(10,("Unable to connect\n"));
+		if (thread_aborted()) return 0;
+		else tell_from_subtask((char*)tcp_strerror(error_code));
 	}
-	else
+
+	/* We handle only the abort case as failure for now */
+	return 1;
+}
+
+/*****************************************************************************/
+
+void imap_synchronize_really(struct imap_synchronize_options *options)
+{
+	struct imap_synchronize_callbacks *callbacks = &options->callbacks;
+	struct imap_server *server;
+
+	SM_ENTER;
+
+	if (!open_socket_lib())
 	{
 		tell_from_subtask(N_("Cannot open the bsdsocket.library!"));
+		goto out;
 	}
+
+	server = (struct imap_server*)list_first(options->imap_list);
+	while (server)
+	{
+		if (!imap_synchronize_really_single(server, callbacks))
+			break;
+		server = (struct imap_server*)node_next(&server->node);
+	}
+	close_socket_lib();
+
+out:
 	SM_LEAVE;
 }
 
-/**************************************************************************/
+/*****************************************************************************/
 
-/**
- * Retrieve the folder list and call the given callback on the context of the
- * main thread.
- *
- * @param server
- * @param callback
- */
-static void imap_get_folder_list_really(struct imap_server *server, void (*callback)(struct imap_server *server, struct string_list *, struct string_list *))
+int imap_get_folder_list_really(struct imap_get_folder_list_options *options)
 {
+	struct imap_get_folder_list_callbacks *callbacks = &options->callbacks;
 	struct connection *conn = NULL;
 	struct connect_options conn_opts = {0};
 	struct string_list *all_folder_list = NULL;
 	struct string_list *sub_folder_list = NULL;
 	char head_buf[100];
 	int error_code;
+	int rc = 0;
+
+	struct imap_server *server = options->server;
 
 	if (!open_socket_lib())
-		return;
+		return 0;
 
 	sm_snprintf(head_buf, sizeof(head_buf), _("Reading folders of %s"),server->name);
-	thread_call_parent_function_async_string(status_set_head, 1, head_buf);
+	callbacks->set_head(head_buf);
 	if (server->title)
-		thread_call_parent_function_async_string(status_set_title_utf8, 1, server->title);
+		callbacks->set_title_utf8(server->title);
 	else
-		thread_call_parent_function_async_string(status_set_title, 1, server->name);
-	thread_call_parent_function_async_string(status_set_connect_to_server, 1, server->name);
+		callbacks->set_title(server->name);
+	callbacks->set_connect_to_server(server->name);
 
 	conn_opts.use_ssl = server->ssl;
 	conn_opts.fingerprint = server->fingerprint;
@@ -1249,97 +1313,44 @@ static void imap_get_folder_list_really(struct imap_server *server, void (*callb
 	if (!(conn = tcp_connect(server->name, server->port, &conn_opts, &error_code)))
 		goto bailout;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Waiting for login..."));
+	callbacks->set_status_static(_("Waiting for login..."));
 	if (!imap_wait_login(conn,server))
 		goto bailout;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Login..."));
+	callbacks->set_status_static(_("Login..."));
 	if (!imap_login(conn,server))
 	{
-		thread_call_function_async(thread_get_main(),status_set_status,1,_("Login failed!"));
+		callbacks->set_status_static(_("Login failed!"));
 		tell_from_subtask(N_("Authentication failed!"));
 		goto bailout;
 	}
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Reading folders..."));
+	callbacks->set_status_static(_("Reading folders..."));
 	if (!(all_folder_list = imap_get_folders(conn,1)))
 		goto bailout;
 
 	if (!(sub_folder_list = imap_get_folders(conn,0)))
 		goto bailout;
 
-	thread_call_parent_function_sync(NULL,callback,3,server,all_folder_list,sub_folder_list);
+	thread_call_parent_function_sync(NULL,options->callbacks.lists_received,3,server,all_folder_list,sub_folder_list);
+
+	rc = 1;
 bailout:
-	if (sub_folder_list) imap_free_name_list(sub_folder_list);
-	if (all_folder_list) imap_free_name_list(all_folder_list);
+	string_list_free(sub_folder_list);
+	string_list_free(all_folder_list);
 	if (conn)  tcp_disconnect(conn);
 	close_socket_lib();
+	return rc;
 }
 
-/**
- * Contains the arguments submitted to the get folder list thread.
- */
-struct imap_get_folder_list_entry_msg
+/*****************************************************************************/
+
+void imap_submit_folder_list_really(struct imap_submit_folder_options *options)
 {
-	struct imap_server *server;
-	void (*callback)(struct imap_server *, struct string_list *, struct string_list *);
-};
+	struct imap_server *server = options->server;
+	struct string_list *list = options->list;
+	struct imap_submit_folder_list_callbacks *callbacks = &options->callbacks;
 
-/**
- * Entry point for the thread to get the folder list.
- *
- * @param msg
- * @return
- */
-static int imap_get_folder_list_entry(struct imap_get_folder_list_entry_msg *msg)
-{
-	struct imap_server *server = imap_duplicate(msg->server);
-	void (*callback)(struct imap_server *, struct string_list *, struct string_list *) = msg->callback;
-
-	if (thread_parent_task_can_contiue())
-	{
-		thread_call_function_async(thread_get_main(),status_init,1,0);
-		thread_call_function_async(thread_get_main(),status_open,0);
-
-		imap_get_folder_list_really(server,callback);
-
-		thread_call_function_async(thread_get_main(),status_close,0);
-	}
-	return 0;
-}
-
-/**
- * Request the list of all folders of the imap server.
- *
- * This is an asynchronous call that is answered with calling the given callback on the
- * context of the main thread.
- *
- * @param server describes the server to which should be connected.
- * @param callback the callback that is invoked if the request completes. The server
- *  argument is an actual duplicate of the original server, both lists contain string
- *  nodes with all_list containing all_list and sub_list containing only subscribed
- *  folders.
- *
- * @return whether the request has been in principle submitted or not.
- */
-int imap_get_folder_list(struct imap_server *server, void (*callback)(struct imap_server *server, struct string_list *all_list, struct string_list *sub_list))
-{
-	struct imap_get_folder_list_entry_msg msg;
-	msg.server = server;
-	msg.callback = callback;
-	return thread_start(THREAD_FUNCTION(&imap_get_folder_list_entry),&msg);
-}
-
-/**************************************************************************/
-
-/**
- * Submit the given list of string_nodes to the imap server in order to subscribe them.
- *
- * @param server
- * @param list
- */
-static void imap_submit_folder_list_really(struct imap_server *server, struct string_list *list)
-{
 	struct connection *conn;
 	struct connect_options conn_opts = {0};
 	char head_buf[100];
@@ -1357,12 +1368,12 @@ static void imap_submit_folder_list_really(struct imap_server *server, struct st
 		return;
 
 	sm_snprintf(head_buf,sizeof(head_buf),_("Submitting subscribed folders to %s"),server->name);
-	thread_call_parent_function_async_string(status_set_head, 1, head_buf);
+	callbacks->set_head(head_buf);
 	if (server->title)
-		thread_call_parent_function_async_string(status_set_title_utf8, 1, server->title);
+		callbacks->set_title_utf8(server->title);
 	else
-		thread_call_parent_function_async_string(status_set_title, 1, server->name);
-	thread_call_parent_function_async_string(status_set_connect_to_server, 1, server->name);
+		callbacks->set_title(server->name);
+	callbacks->set_connect_to_server(server->name);
 
 	conn_opts.use_ssl = server->ssl;
 	conn_opts.fingerprint = server->fingerprint;
@@ -1370,19 +1381,19 @@ static void imap_submit_folder_list_really(struct imap_server *server, struct st
 	if (!(conn = tcp_connect(server->name, server->port, &conn_opts, &error_code)))
 		goto out;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Waiting for login..."));
+	callbacks->set_status_static(_("Waiting for login..."));
 	if (!imap_wait_login(conn,server))
 		goto out;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Login..."));
+	callbacks->set_status_static(_("Login..."));
 	if (!imap_login(conn,server))
 		goto out;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Reading folders..."));
+	callbacks->set_status_static(_("Reading folders..."));
 	if (!(all_folder_list = imap_get_folders(conn,1)))
 		goto out;
 
-	thread_call_function_async(thread_get_main(),status_set_status,1,_("Reading subscribed folders..."));
+	callbacks->set_status_static(_("Reading subscribed folders..."));
 	if (!(sub_folder_list = imap_get_folders(conn,0)))
 		goto out;
 
@@ -1459,211 +1470,109 @@ static void imap_submit_folder_list_really(struct imap_server *server, struct st
 		node = (struct string_node*)node_next(&node->node);
 	}
 out:
-	imap_free_name_list(sub_folder_list);
-	imap_free_name_list(all_folder_list);
+	string_list_free(sub_folder_list);
+	string_list_free(all_folder_list);
 	tcp_disconnect(conn);
 	close_socket_lib();
 }
 
-/**
- * Contains the arguments send to the submit folder list thread.
- */
-struct imap_submit_folder_list_entry_msg
+/*****************************************************************************/
+
+int imap_really_connect_and_login_to_server(struct connection **connection, struct imap_server *imap_server, struct imap_connect_and_login_to_server_callbacks *callbacks)
 {
-	struct imap_server *server;
-	struct string_list *list;
-};
+	int success = 0;
+	char status_buf[160];
+	struct connect_options conn_opts = {0};
+	int error_code;
+	struct connection *imap_connection = NULL;
 
+	SM_ENTER;
 
-/**
- * The entry point for the submit folder list thread.
- *
- * @param msg
- * @return
- */
-static int imap_submit_folder_list_entry(struct imap_submit_folder_list_entry_msg *msg)
-{
-	struct imap_server *server = imap_duplicate(msg->server);
-	struct string_list list;
-	struct string_node *node;
+	if (!imap_server)
+		goto bailout;
 
-	string_list_init(&list);
-	node = string_list_first(msg->list);
-	while (node)
+	if (imap_server->ask)
 	{
-		string_list_insert_tail(&list,node->string);
-		node = (struct string_node*)node_next(&node->node);
-	}
+		char *password = (char*)malloc(512);
+		char *login = (char*)malloc(512);
 
-
-	if (thread_parent_task_can_contiue())
-	{
-		thread_call_function_async(thread_get_main(),status_init,1,0);
-		thread_call_function_async(thread_get_main(),status_open,0);
-
-		imap_submit_folder_list_really(server,&list);
-
-		thread_call_function_async(thread_get_main(),status_close,0);
-	}
-	string_list_clear(&list);
-	return 0;
-}
-
-/**
- * Submit the given list of string_nodes as subscribed to the given server.
- *
- * This is an asynchronous call.
- *
- * @param server contains all the connection details that describe the login
- *  that is the concern of this call.
- * @param list the list of string_nodes to identify the
- * @return whether the call has in principle be invoked.
- */
-int imap_submit_folder_list(struct imap_server *server, struct string_list *list)
-{
-	struct imap_submit_folder_list_entry_msg msg;
-	msg.server = server;
-	msg.list = list;
-	return thread_start(THREAD_FUNCTION(&imap_submit_folder_list_entry),&msg);
-}
-
-/**************************************************************************/
-
-/**
- * Allocate an imap server structure and initialize it with some default values.
- *
- * @return
- */
-struct imap_server *imap_malloc(void)
-{
-	struct imap_server *imap;
-	if ((imap = (struct imap_server*)malloc(sizeof(*imap))))
-	{
-		memset(imap,0,sizeof(struct imap_server));
-		imap->port = 143;
-	}
-	return imap;
-}
-
-/**
- * Duplicates a given imap server.
- *
- * @param imap
- * @return
- */
-struct imap_server *imap_duplicate(struct imap_server *imap)
-{
-	struct imap_server *new_imap = imap_malloc();
-	if (new_imap)
-	{
-		new_imap->name = mystrdup(imap->name);
-		new_imap->fingerprint = mystrdup(imap->fingerprint);
-		new_imap->login = mystrdup(imap->login);
-		new_imap->passwd = mystrdup(imap->passwd);
-		new_imap->title = mystrdup(imap->title);
-		new_imap->port = imap->port;
-		new_imap->active = imap->active;
-		new_imap->ssl = imap->ssl;
-		new_imap->starttls = imap->starttls;
-		new_imap->ask = imap->ask;
-	}
-	return new_imap;
-}
-
-/**
- * Frees the given imap server instance completely.
- *
- * @param imap
- */
-void imap_free(struct imap_server *imap)
-{
-	if (imap->name) free(imap->name);
-	if (imap->fingerprint) free(imap->fingerprint);
-	if (imap->login) free(imap->login);
-	if (imap->passwd) free(imap->passwd);
-	if (imap->title) free(imap->title);
-	free(imap);
-}
-
-/**
- * Checks whether in principle a new connection would be needed when swiching from srv1 to srv2.
- *
- * @param srv1
- * @param srv2
- * @return
- */
-static int imap_new_connection_needed(struct imap_server *srv1, struct imap_server *srv2)
-{
-	if (!srv1 && !srv2) return 0;
-	if (!srv1) return 1;
-	if (!srv2) return 1;
-
-	return mystrcmp(srv1->name,srv2->name) || (srv1->port != srv2->port) || mystrcmp(srv1->login,srv2->login) ||
-		(mystrcmp(srv1->passwd,srv2->passwd) && !srv1->ask && !srv2->ask)  || (srv1->ask != srv2->ask) ||
-		(srv1->ssl != srv2->ssl) || (srv1->starttls != srv2->starttls);
-}
-
-
-/***** IMAP Thread *****/
-
-static thread_t imap_thread;
-static struct connection *imap_connection;
-static int imap_socket_lib_open;
-static struct imap_server *imap_server;
-static char *imap_folder; /** The path of the folder on the imap server */
-static char *imap_local_path; /** The local path of the folder */
-
-/**************************************************************************/
-
-/**
- * The entry point for the imap thread. It just go into the wait state and
- * then frees all resources when finished
- *
- * @param test
- */
-static void imap_thread_entry(void *test)
-{
-	if (thread_parent_task_can_contiue())
-	{
-		thread_wait(NULL,NULL,0);
-
-		imap_free(imap_server);
-		free(imap_folder);
-		free(imap_local_path);
-
-		if (imap_connection)
+		if (password && login)
 		{
+			if (imap_server->login) mystrlcpy(login,imap_server->login,512);
+			password[0] = 0;
+
+			if (callbacks->request_login(imap_server->name,login,password,512))
+			{
+				imap_server->login = mystrdup(login);
+				imap_server->passwd = mystrdup(password);
+			} else
+			{
+				free(password);
+				free(login);
+				return 0;
+			}
+		}
+
+		free(password);
+		free(login);
+	}
+
+	/* Display "Connecting" - status message */
+	sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connecting..."));
+	callbacks->set_status(status_buf);
+
+	conn_opts.use_ssl = imap_server->ssl;
+	conn_opts.fingerprint = imap_server->fingerprint;
+
+	if ((imap_connection = tcp_connect(imap_server->name, imap_server->port, &conn_opts, &error_code)))
+	{
+		SM_DEBUGF(20,("Connected to %s\n",imap_server->name));
+
+		if (imap_wait_login(imap_connection,imap_server))
+		{
+			/* Display "Logging in" - status message */
+			sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Logging in..."));
+			callbacks->set_status(status_buf);
+
+			if (imap_login(imap_connection,imap_server))
+			{
+				/* Display "Connected" - status message */
+				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connected"));
+				callbacks->set_status(status_buf);
+
+				success = 1;
+			} else
+			{
+				SM_DEBUGF(10,("Login failed\n"));
+				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Log in failed. Check user name and password for this account."));
+				callbacks->set_status(status_buf);
+				tcp_disconnect(imap_connection);
+				imap_connection = NULL;
+				tell_from_subtask(N_("Authentication failed!"));
+			}
+		} else
+		{
+			sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Unexpected server answer. Connection failed."));
+			callbacks->set_status(status_buf);
 			tcp_disconnect(imap_connection);
 			imap_connection = NULL;
 		}
-
-		if (imap_socket_lib_open)
-		{
-			close_socket_lib();
-			imap_socket_lib_open = 0;
-		}
+	} else
+	{
+		/* Display "Failed to connect" - status message */
+		sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connecting to the server failed"));
+		callbacks->set_status(status_buf);
 	}
+
+bailout:
+	*connection = imap_connection;
+	SM_RETURN(success,"%ld");
+	return success;
 }
 
-/**
- * The function creates the IMAP thread. It doesn't start the thread
- * if it is already started.
- *
- * @return whether the thread has been started.
- */
-static int imap_start_thread(void)
-{
-	if (imap_thread) return 1;
-	imap_thread = thread_add(IMAP_THREAD_NAME, THREAD_FUNCTION(&imap_thread_entry),NULL);
-	return !!imap_thread;
-}
+/*****************************************************************************/
 
-/**
- * Function to download mails.
- *
- * @return number of downloaded mails. A value < 0 indicates an error.
- */
-static int imap_thread_really_download_mails(void)
+int imap_really_download_mails(struct connection *imap_connection, struct imap_download_mails_options *options)
 {
 	char path[380];
 	struct folder *local_folder;
@@ -1678,6 +1587,11 @@ static int imap_thread_really_download_mails(void)
 
 	unsigned int uid_from = 0;
 	unsigned int uid_to = 0;
+
+	char *imap_local_path = options->imap_local_path;
+	struct imap_server *imap_server = options->imap_server;
+	char *imap_folder = options->imap_folder;
+	struct imap_download_mails_callbacks *callbacks = &options->callbacks;
 
 	struct progmon *pm;
 
@@ -1710,7 +1624,13 @@ static int imap_thread_really_download_mails(void)
 	/* Uids are valid only if they are non-zero */
 	if (local_uid_validiy != 0 && local_uid_next != 0 && !dont_use_uids)
 	{
-		if ((rm = imap_select_mailbox(imap_connection, imap_folder, 0)))
+		struct imap_select_mailbox_args select_mailbox_args = {0};
+		select_mailbox_args.conn = imap_connection;
+		select_mailbox_args.path = imap_folder;
+		select_mailbox_args.set_status = callbacks->set_status;
+		select_mailbox_args.set_status_static = callbacks->set_status_static;
+
+		if ((rm = imap_select_mailbox(&select_mailbox_args)))
 		{
 			if (rm->uid_validity == local_uid_validiy)
 			{
@@ -1744,6 +1664,8 @@ static int imap_thread_really_download_mails(void)
 
 			if (get_local_mail_array(local_folder, &local_mail_array, &num_of_local_mails, &num_of_todel_local_mails))
 			{
+				struct imap_get_remote_mails_args args = {0};
+
 				utf8 msg[80];
 
 				folders_unlock();
@@ -1758,7 +1680,16 @@ static int imap_thread_really_download_mails(void)
 					pm->working_on(pm,msg);
 				}
 
-				if ((rm = imap_get_remote_mails(imap_connection, imap_folder, 0, 1, uid_from, uid_to)))
+				args.conn = imap_connection;
+				args.path = imap_folder;
+				args.writemode = 0;
+				args.headers = 1;
+				args.uid_start = uid_from;
+				args.uid_end = uid_to;
+				args.set_status = options->callbacks.set_status;
+				args.set_status_static = options->callbacks.set_status_static;
+
+				if ((rm = imap_get_remote_mails(&args)))
 				{
 					int i,j;
 
@@ -1839,7 +1770,7 @@ static int imap_thread_really_download_mails(void)
 
 								if (filename_current == MAX_MAILS_PER_REFRESH || time_ticks_passed(ticks) > TIME_TICKS_PER_SECOND / 2)
 								{
-									thread_call_parent_function_sync(NULL, callback_new_imap_mails_arrived, 5, filename_current, filename_ptrs, imap_server->login, imap_server->name, imap_folder);
+									callbacks->new_mails_arrived(filename_current, filename_ptrs, imap_server->login, imap_server->name, imap_folder);
 									while (filename_current)
 										free(filename_ptrs[--filename_current]);
 
@@ -1863,7 +1794,7 @@ static int imap_thread_really_download_mails(void)
 					/* Add the rest */
 					if (filename_current)
 					{
-						thread_call_parent_function_sync(NULL, callback_new_imap_mails_arrived, 5, filename_current, filename_ptrs, imap_server->login, imap_server->name, imap_folder);
+						callbacks->new_mails_arrived(filename_current, filename_ptrs, imap_server->login, imap_server->name, imap_folder);
 						while (filename_current)
 							free(filename_ptrs[--filename_current]);
 					}
@@ -1871,13 +1802,19 @@ static int imap_thread_really_download_mails(void)
 					SM_DEBUGF(10,("%d mails downloaded after %d ms\n",downloaded_mails,time_ms_passed(total_download_ticks)));
 
 					/* Finally, inform controller about new uids */
-					thread_call_parent_function_sync(NULL, callback_new_imap_uids, 5, rm->uid_validity, rm->uid_next, imap_server->login, imap_server->name, imap_folder);
+					callbacks->new_uids(rm->uid_validity, rm->uid_next, imap_server->login, imap_server->name, imap_folder);
 
 					if (uid_from && uid_to)
 					{
+						/* connection and folder stays */
+						args.uid_start = 0;
+						args.uid_end = 0;
+						args.writemode = 0;
+						args.headers = 0;
+
 						imap_free_remote_mailbox(rm);
 						/* Rescan folder in order to delete orphaned messages */
-						rm = imap_get_remote_mails(imap_connection, imap_folder, 0, 0, 0, 0);
+						rm = imap_get_remote_mails(&args);
 					}
 
 					if (rm)
@@ -1912,292 +1849,111 @@ static int imap_thread_really_download_mails(void)
 			default: sm_snprintf(&path[l], sizeof(path) - l,_("%d new mails in folder \"%s\""),downloaded_mails,f); break;
 		}
 
-		thread_call_parent_function_async_string(status_set_status,1,path);
+		callbacks->set_status(path);
 	}
 
 	SM_RETURN(downloaded_mails,"%d");
 	return downloaded_mails;
 }
 
-static int imap_thread_really_connect_and_login_to_server(void)
+/*****************************************************************************/
+
+void imap_really_connect_to_server(struct connection **imap_connection, struct imap_connect_to_server_options *options)
 {
-	int success = 0;
 	char status_buf[160];
-	struct connect_options conn_opts = {0};
-	int error_code;
+	struct progmon *pm = NULL;
+	struct string_list *folder_list = NULL;
+	struct string_node *node;
+	struct imap_connect_to_server_callbacks *callbacks = &options->callbacks;
+	struct imap_download_mails_options download_options = {0};
+	struct imap_connect_and_login_to_server_callbacks connect_and_login_callbacks = {0};
 
 	SM_ENTER;
 
-	if (!imap_server)
+	if (!options->imap_server) goto bailout;
+
+	pm = progmon_create();
+	if (pm)
+	{
+		utf8 msg[80];
+
+		utf8fromstr(_("Connect with IMAP server"),NULL,msg,sizeof(msg));
+		pm->begin(pm,2,msg);
+
+		utf8fromstr(_("Logging in"),NULL,msg,sizeof(msg));
+		pm->working_on(pm,msg);
+	}
+
+	connect_and_login_callbacks.set_status = options->callbacks.set_status;
+	connect_and_login_callbacks.request_login = options->callbacks.request_login;
+
+	if (!imap_really_connect_and_login_to_server(imap_connection, options->imap_server, &connect_and_login_callbacks))
 		goto bailout;
 
-	if (!imap_socket_lib_open)
-	 imap_socket_lib_open = open_socket_lib();
-	if (!imap_socket_lib_open) return 0;
+	/* Display "Retrieving mail folders" - status message */
+	sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",options->imap_server->name, _("Retrieving mail folders..."));
+	callbacks->set_status(status_buf);
 
-	if (imap_connection)
+	/* We have now connected to the server, check for the folders at first */
+	folder_list = imap_get_folders(*imap_connection, 0);
+	if (!folder_list)
+		goto bailout;
+
+	/* add the folders */
+	node = string_list_first(folder_list);
+	while (node)
 	{
-		tcp_disconnect(imap_connection);
-		imap_connection = NULL;
+		thread_call_parent_function_sync(NULL,callback_add_imap_folder,3,options->imap_server->login,options->imap_server->name,node->string);
+		node = (struct string_node*)node_next(&node->node);
 	}
+	thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
 
-	if (imap_server->ask)
-	{
-		char *password = (char*)malloc(512);
-		char *login = (char*)malloc(512);
+	string_list_free(folder_list);
+	folder_list = NULL;
 
-		if (password && login)
-		{
-			if (imap_server->login) mystrlcpy(login,imap_server->login,512);
-			password[0] = 0;
-
-			if (thread_call_parent_function_sync(NULL,sm_request_login,4,imap_server->name,login,password,512))
-			{
-				imap_server->login = mystrdup(login);
-				imap_server->passwd = mystrdup(password);
-			} else
-			{
-				free(password);
-				free(login);
-				return 0;
-			}
-		}
-
-		free(password);
-		free(login);
-	}
-
-	/* Display "Connecting" - status message */
-	sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connecting..."));
-	thread_call_parent_function_async_string(status_set_status,1,status_buf);
-
-	conn_opts.use_ssl = imap_server->ssl;
-	conn_opts.fingerprint = imap_server->fingerprint;
-
-	if ((imap_connection = tcp_connect(imap_server->name, imap_server->port, &conn_opts, &error_code)))
-	{
-		SM_DEBUGF(20,("Connected to %s\n",imap_server->name));
-
-		if (imap_wait_login(imap_connection,imap_server))
-		{
-			/* Display "Logging in" - status message */
-			sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Logging in..."));
-			thread_call_parent_function_async_string(status_set_status,1,status_buf);
-
-			if (imap_login(imap_connection,imap_server))
-			{
-				/* Display "Connected" - status message */
-				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connected"));
-				thread_call_parent_function_async_string(status_set_status,1,status_buf);
-
-				success = 1;
-			} else
-			{
-				SM_DEBUGF(10,("Login failed\n"));
-				sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Log in failed. Check user name and password for this account."));
-				thread_call_parent_function_async_string(status_set_status,1,status_buf);
-				tcp_disconnect(imap_connection);
-				imap_connection = NULL;
-				tell_from_subtask(N_("Authentication failed!"));
-			}
-		} else
-		{
-			sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Unexpected server answer. Connection failed."));
-			thread_call_parent_function_async_string(status_set_status,1,status_buf);
-			tcp_disconnect(imap_connection);
-			imap_connection = NULL;
-		}
-	} else
-	{
-		/* Display "Failed to connect" - status message */
-		sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Connecting to the server failed"));
-		thread_call_parent_function_async_string(status_set_status,1,status_buf);
-	}
-
+	download_options.imap_folder = options->imap_folder;
+	download_options.imap_local_path = options->imap_local_path;
+	download_options.imap_server = options->imap_server;
+	download_options.callbacks = options->download_callbacks;
+	imap_really_download_mails(*imap_connection, &download_options);
 bailout:
-	SM_RETURN(success,"%ld");
-	return success;
-}
+	if (folder_list)
+		string_list_free(folder_list);
 
-static int imap_thread_really_login_to_given_server(struct imap_server *server)
-{
-	if (!imap_connection || imap_new_connection_needed(imap_server,server))
+	if (pm)
 	{
-		free(imap_folder); imap_folder = NULL;
-		free(imap_local_path); imap_local_path = NULL;
-
-		if (imap_server) imap_free(imap_server);
-		if ((imap_server = imap_duplicate(server)))
-		{
-			return imap_thread_really_connect_and_login_to_server();
-		}
-		return 0;
+		pm->done(pm);
+		progmon_delete(pm);
 	}
-	return 1;
-}
 
-/**
- * Establishes a connection to the server and downloads mails.
- */
-static void imap_thread_really_connect_to_server(void)
-{
-	SM_ENTER;
-
-	if (imap_server)
-	{
-		struct progmon *pm;
-
-		pm = progmon_create();
-		if (pm)
-		{
-			utf8 msg[80];
-
-			utf8fromstr(_("Connect with IMAP server"),NULL,msg,sizeof(msg));
-			pm->begin(pm,2,msg);
-
-			utf8fromstr("Logging in",NULL,msg,sizeof(msg));
-			pm->working_on(pm,msg);
-		}
-
-		if (imap_thread_really_connect_and_login_to_server())
-		{
-			char status_buf[160];
-			struct string_list *folder_list;
-
-			/* Display "Retrieving mail folders" - status message */
-			sm_snprintf(status_buf,sizeof(status_buf),"%s: %s",imap_server->name, _("Retrieving mail folders..."));
-			thread_call_parent_function_async_string(status_set_status,1,status_buf);
-
-			/* We have now connected to the server, check for the folders at first */
-			folder_list = imap_get_folders(imap_connection, 0);
-			if (folder_list)
-			{
-				struct string_node *node;
-
-				/* add the folders */
-				node = string_list_first(folder_list);
-				while (node)
-				{
-					thread_call_parent_function_sync(NULL,callback_add_imap_folder,3,imap_server->login,imap_server->name,node->string);
-					node = (struct string_node*)node_next(&node->node);
-				}
-				thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
-
-				imap_free_name_list(folder_list);
-
-				imap_thread_really_download_mails();
-			}
-		}
-
-		if (pm)
-		{
-			pm->done(pm);
-			progmon_delete(pm);
-		}
-	}
 	SM_LEAVE;
 }
 
-/**
- * Connect to the given imap server. Shall be invoked only in the context of the IMAP thread.
- *
- * @param server
- * @param folder
- * @param local_path
- * @return
- */
-static int imap_thread_connect_to_server(struct imap_server *server, char *folder, char *local_path)
-{
-	static int connecting;
+/*****************************************************************************/
 
-	int rc = 0;
-
-	SM_ENTER;
-
-	/* Ignore this request if we are already connecting. This can happen for instance, if a synchronous call
-	 * to the parent task is issued.  */
-	if (connecting)
-	{
-		SM_DEBUGF(5, ("Ignoring connect to server request for %s\n", local_path));
-
-		if (server) imap_free(server);
-		free(folder);
-		free(local_path);
-		goto bailout;
-	}
-
-	connecting = 1;
-
-	if (!imap_connection || imap_new_connection_needed(imap_server,server))
-	{
-		if (imap_server) imap_free(imap_server);
-		imap_server = server;
-
-		free(imap_folder);
-		imap_folder = folder;
-
-		free(imap_local_path);
-		imap_local_path = local_path;
-
-		imap_thread_really_connect_to_server();
-		rc = 1;
-	} else
-	{
-		imap_free(server);
-
-		free(imap_folder);
-		imap_folder = folder;
-
-		free(imap_local_path);
-		imap_local_path = local_path;
-
-		imap_thread_really_download_mails();
-		rc = 1;
-	}
-
-	connecting = 0;
-
-bailout:
-	SM_RETURN(rc,"%d");
-	return rc;
-}
-
-/**
- * Download the given mail. Usually called in the context of the imap thread.
- *
- * @param server
- * @param local_path
- * @param m
- * @param callback called on the context of the parent task.
- * @param userdata user data supplied for the callback
- * @return
- */
-static int imap_thread_download_mail(struct imap_server *server, char *local_path, struct mail_info *m, void (*callback)(struct mail_info *m, void *userdata), void *userdata)
+int imap_really_delete_mail_by_filename(struct connection *imap_connection, struct imap_delete_mail_by_filename_options *options)
 {
 	char send[200];
 	char tag[20];
 	char buf[380];
 	char *line;
 	int uid;
+	int msgno = -1;
 	int success;
 
-	SM_ENTER;
+	char *filename = options->filename;
+	struct folder *folder = options->folder;
+	sm_snprintf(send,sizeof(send),"SELECT \"%s\"\r\n",folder->imap_path);
+	if (!imap_send_simple_command(imap_connection,send)) return 0;
 
-	if (!imap_thread_really_login_to_given_server(server))
-	{
-		SM_RETURN(0,"%ld");
-		return 0;
-	}
-
-	uid = atoi(m->filename + 1);
+	success = 0;
+	uid = atoi(filename + 1);
 
 	sprintf(tag,"%04x",val++);
-	sprintf(send,"%s UID FETCH %d RFC822\r\n",tag,uid);
+	sprintf(send,"%s SEARCH UID %d\r\n",tag,uid);
 	tcp_write(imap_connection,send,strlen(send));
 	tcp_flush(imap_connection);
 
-	SM_DEBUGF(15,("Sending %s",send));
-	success = 0;
 	while ((line = tcp_readln(imap_connection)))
 	{
 		line = imap_get_result(line,buf,sizeof(buf));
@@ -2210,67 +1966,33 @@ static int imap_thread_download_mail(struct imap_server *server, char *local_pat
 		} else
 		{
 			/* untagged */
-			if (buf[0] == '*')
-			{
-				char msgno_buf[200];
-				char *temp_ptr;
-				int todownload;
-				line++;
+			char first[200];
+			char second[200];
 
-				line = imap_get_result(line,msgno_buf,sizeof(msgno_buf));
-				/*msgno = atoi(msgno_buf);*/ /* ignored */
+			line = imap_get_result(line,first,sizeof(first));
+			line = imap_get_result(line,second,sizeof(second));
 
-				/* skip the fetch command */
-				line = imap_get_result(line,msgno_buf,sizeof(msgno_buf));
-				if ((temp_ptr = strchr(line,'{'))) /* } - avoid bracket checking problems */
-				{
-					temp_ptr++;
-					todownload = atoi(temp_ptr);
-				} else todownload = 0;
-
-				if (todownload)
-				{
-					FILE *fh;
-
-					mystrlcpy(buf,local_path,sizeof(buf));
-					sm_add_part(buf,m->filename,sizeof(buf));
-
-					if ((fh = fopen(buf,"w")))
-					{
-						while (todownload)
-						{
-							int dl;
-							dl = tcp_read(imap_connection,buf,MIN((sizeof(buf)-4),todownload));
-
-							if (dl == -1 || !dl) break;
-							fwrite(buf,1,dl,fh);
-							todownload -= dl;
-						}
-						fclose(fh);
-					}
-				}
-			}
+			msgno = atoi(second);
 		}
 	}
-	if (callback)
-		thread_call_function_async(thread_get_main(), callback, 2, m, userdata);
 
-	SM_RETURN(success,"%ld");
+	if (success && msgno != -1)
+	{
+		sprintf(send,"STORE %d +FLAGS.SILENT (\\Deleted)\r\n",msgno);
+		success = imap_send_simple_command(imap_connection,send);
+
+		if (success)
+		{
+			success = imap_send_simple_command(imap_connection,"EXPUNGE");
+		}
+	}
+
 	return success;
 }
 
-/**
- * Move a given mail from one folder into another one of the given imap account.
- *
- * Usually called in the context of the imap thread.
- *
- * @param mail
- * @param server
- * @param src_folder
- * @param dest_folder
- * @return success or failure.
- */
-static int imap_thread_move_mail(struct mail_info *mail, struct imap_server *server, struct folder *src_folder, struct folder *dest_folder)
+/*****************************************************************************/
+
+int imap_really_move_mail(struct connection *imap_connection, struct mail_info *mail, struct imap_server *server, struct folder *src_folder, struct folder *dest_folder)
 {
 	char send[200];
 	char tag[20];
@@ -2279,8 +2001,6 @@ static int imap_thread_move_mail(struct mail_info *mail, struct imap_server *ser
 	int uid;
 	int msgno = -1;
 	int success;
-
-	if (!imap_thread_really_login_to_given_server(server)) return 0;
 
 	sm_snprintf(send,sizeof(send),"SELECT \"%s\"\r\n",src_folder->imap_path);
 	if (!imap_send_simple_command(imap_connection,send)) return 0;
@@ -2338,86 +2058,9 @@ static int imap_thread_move_mail(struct mail_info *mail, struct imap_server *ser
 	return success;
 }
 
-/**
- * Delete a mail permanently from the server
- *
- * @param filename
- * @param server
- * @param folder
- * @return success or not.
- * @note This function can only be called in the context of the imap thread.
- */
-static int imap_thread_delete_mail_by_filename(char *filename, struct imap_server *server, struct folder *folder)
-{
-	char send[200];
-	char tag[20];
-	char buf[380];
-	char *line;
-	int uid;
-	int msgno = -1;
-	int success;
+/*****************************************************************************/
 
-	if (!imap_thread_really_login_to_given_server(server)) return 0;
-
-	sm_snprintf(send,sizeof(send),"SELECT \"%s\"\r\n",folder->imap_path);
-	if (!imap_send_simple_command(imap_connection,send)) return 0;
-
-	success = 0;
-	uid = atoi(filename + 1);
-
-	sprintf(tag,"%04x",val++);
-	sprintf(send,"%s SEARCH UID %d\r\n",tag,uid);
-	tcp_write(imap_connection,send,strlen(send));
-	tcp_flush(imap_connection);
-
-	while ((line = tcp_readln(imap_connection)))
-	{
-		line = imap_get_result(line,buf,sizeof(buf));
-		if (!mystricmp(buf,tag))
-		{
-			line = imap_get_result(line,buf,sizeof(buf));
-			if (!mystricmp(buf,"OK"))
-				success = 1;
-			break;
-		} else
-		{
-			/* untagged */
-			char first[200];
-			char second[200];
-
-			line = imap_get_result(line,first,sizeof(first));
-			line = imap_get_result(line,second,sizeof(second));
-
-			msgno = atoi(second);
-		}
-	}
-
-	if (success && msgno != -1)
-	{
-		sprintf(send,"STORE %d +FLAGS.SILENT (\\Deleted)\r\n",msgno);
-		success = imap_send_simple_command(imap_connection,send);
-
-		if (success)
-		{
-			success = imap_send_simple_command(imap_connection,"EXPUNGE");
-		}
-	}
-
-	return success;
-}
-
-/**
- * Store the mail represented by the mail located in the given source_dir
- * on the given server in the given dest_folder.
- *
- * @param mail
- * @param source_dir
- * @param server
- * @param dest_folder
- * @return success or not.
- * @note This function can only be called in the context of the imap thread.
- */
-static int imap_thread_append_mail(struct mail_info *mail, char *source_dir, struct imap_server *server, struct folder *dest_folder)
+int imap_really_append_mail(struct connection *imap_connection, struct mail_info *mail, char *source_dir, struct imap_server *server, struct folder *dest_folder)
 {
 	char send[200];
 	char buf[380];
@@ -2427,22 +2070,6 @@ static int imap_thread_append_mail(struct mail_info *mail, char *source_dir, str
 	char tag[20],path[380];
 	char line_buf[1200];
 	int filesize;
-
-	/* Should be in a separate function */
-	if (!imap_connection || imap_new_connection_needed(imap_server,server))
-	{
-		free(imap_folder); imap_folder = NULL;
-		free(imap_local_path);imap_local_path = NULL;
-
-		if (imap_server) imap_free(imap_server);
-		if ((imap_server = imap_duplicate(server)))
-		{
-			imap_thread_really_connect_and_login_to_server();
-		}
-	}
-
-	if (!imap_server) return 0;
-	if (!imap_connection) return 0;
 
 	/* At first copy the mail to a temporary location because we may store the emails which only has a \n ending */
 	if (!(tfh = tmpfile())) return 0;
@@ -2527,232 +2154,144 @@ static int imap_thread_append_mail(struct mail_info *mail, char *source_dir, str
 	return success;
 }
 
-/**
- * Let the imap thread connect to the imap server represented by the folder.
- *
- * @param folder the folder to which the imap thread should connect.
- */
-void imap_thread_connect(struct folder *folder)
+/*****************************************************************************/
+
+int imap_really_download_mail(struct connection *imap_connection, struct imap_server *server, char *local_path, struct mail_info *m, void (*callback)(struct mail_info *m, void *userdata), void *userdata)
 {
-	struct imap_server *server;
-	char *imap_folder;
-	char *imap_local_path;
+	char send[200];
+	char tag[20];
+	char buf[380];
+	char *line;
+	int uid;
+	int success;
 
 	SM_ENTER;
 
-	if (!(server = account_find_imap_server_by_folder(folder)))
+	uid = atoi(m->filename + 1);
+
+	sprintf(tag,"%04x",val++);
+	sprintf(send,"%s UID FETCH %d RFC822\r\n",tag,uid);
+	tcp_write(imap_connection,send,strlen(send));
+	tcp_flush(imap_connection);
+
+	SM_DEBUGF(15,("Sending %s",send));
+	success = 0;
+	while ((line = tcp_readln(imap_connection)))
 	{
-		SM_DEBUGF(5,("Server for folder %p (%s) not found\n",folder,folder?folder->name:"NONE"));
-		goto bailout;
-	}
-
-	if (!imap_start_thread())
-	{
-		SM_DEBUGF(5,("Could not start IMAP thread\n"));
-		goto bailout;
-	}
-
-	if (!(server = imap_duplicate(server)))
-	{
-		SM_DEBUGF(5,("Could not duplicate imap server\n"));
-		goto bailout;
-	}
-
-	if ((!(imap_folder = mystrdup(folder->imap_path))) && folder->imap_path != NULL && strlen(folder->imap_path))
-	{
-		SM_DEBUGF(5,("Could not duplicate imap path\n"));
-		goto bailout;
-	}
-
-	if (!(imap_local_path = mystrdup(folder->path)))
-	{
-		SM_DEBUGF(5,("Could not duplicate folder path\n"));
-		goto bailout;
-	}
-
-	thread_call_function_async(imap_thread, imap_thread_connect_to_server, 4, server, imap_folder, imap_local_path, folder->imap_download);
-bailout:
-	SM_LEAVE;
-}
-
-/**
- * Download the given mail from the imap server in a synchrony manner.
- *
- * @param f
- * @param m
- * @return
- */
-int imap_download_mail(struct folder *f, struct mail_info *m)
-{
-	struct imap_server *server;
-
-	if (!(m->flags & MAIL_FLAGS_PARTIAL)) return 0;
-	if (!(server = account_find_imap_server_by_folder(f))) return 0;
-	if (!imap_start_thread()) return 0;
-
-	if (thread_call_function_sync(imap_thread, imap_thread_download_mail, 5, server, f->path, m, NULL, NULL))
-	{
-		folder_set_mail_flags(f, m, (m->flags & (~MAIL_FLAGS_PARTIAL)));
-		return 1;
-	}
-	return 0;
-}
-
-struct imap_download_data
-{
-	struct imap_server *server;
-	char *local_path;
-	char *remote_path;
-	void (*callback)(struct mail_info *m, void *userdata);
-	void *userdata;
-};
-
-/**
- * Function that is to be called when an email has been downloaded
- * asynchronously. Always called on the context of the parent task.
- *
- * @param m
- * @param userdata
- */
-static void imap_download_mail_async_callback(struct mail_info *m, void *userdata)
-{
-	struct imap_download_data *d = (struct imap_download_data*)userdata;
-	struct folder *local_folder;
-
-	SM_ENTER;
-
-	SM_DEBUGF(20,("m=%p, d=%p, local_path=%p\n",m,d,d->local_path));
-
-	folders_lock();
-	if ((local_folder = folder_find_by_path(d->local_path)))
-		folder_lock(local_folder);
-	folders_unlock();
-
-	if (local_folder)
-	{
-		folder_set_mail_flags(local_folder, m, (m->flags & (~MAIL_FLAGS_PARTIAL)));
-		folder_unlock(local_folder);
-	}
-	d->callback(m,d->userdata);
-	mail_dereference(m);
-	free(d->remote_path);
-	free(d->local_path);
-	imap_free(d->server);
-	free(d);
-
-	SM_LEAVE;
-}
-
-/**
- * Download the given mail in an asynchronous manner. The callback is called
- * when the download process has finished.
- *
- * @param f
- * @param m
- * @param callback
- * @param userdata
- * @return
- */
-int imap_download_mail_async(struct folder *f, struct mail_info *m, void (*callback)(struct mail_info *m, void *userdata), void *userdata)
-{
-	struct imap_download_data *d = NULL;
-
-	SM_ENTER;
-
-	if (!imap_start_thread()) goto bailout;
-	if (!(d = malloc(sizeof(*d)))) goto bailout;
-	memset(d,0,sizeof(*d));
-	d->userdata = userdata;
-	if (!(d->server = account_find_imap_server_by_folder(f))) goto bailout;
-	if (!(d->server = imap_duplicate(d->server))) goto bailout;
-	if (!(d->local_path = mystrdup(f->path))) goto bailout;
-	if (!(d->remote_path = mystrdup(f->imap_path))) goto bailout;
-
-	mail_reference(m);
-	d->callback = callback;
-
-	if (!thread_call_function_async(imap_thread, imap_thread_download_mail, 5, d->server, d->local_path, m, imap_download_mail_async_callback, d))
-		goto bailout;
-	SM_RETURN(1,"%ld");
-	return 1;
-bailout:
-	if (d)
-	{
-		if (d->remote_path)
+		line = imap_get_result(line,buf,sizeof(buf));
+		if (!mystricmp(buf,tag))
 		{
-			free(d->remote_path);
-			mail_dereference(m);
+			line = imap_get_result(line,buf,sizeof(buf));
+			if (!mystricmp(buf,"OK"))
+				success = 1;
+			break;
+		} else
+		{
+			/* untagged */
+			if (buf[0] == '*')
+			{
+				char msgno_buf[200];
+				char *temp_ptr;
+				int todownload;
+				line++;
+
+				line = imap_get_result(line,msgno_buf,sizeof(msgno_buf));
+				/*msgno = atoi(msgno_buf);*/ /* ignored */
+
+				/* skip the fetch command */
+				line = imap_get_result(line,msgno_buf,sizeof(msgno_buf));
+				if ((temp_ptr = strchr(line,'{'))) /* } - avoid bracket checking problems */
+				{
+					temp_ptr++;
+					todownload = atoi(temp_ptr);
+				} else todownload = 0;
+
+				if (todownload)
+				{
+					FILE *fh;
+
+					mystrlcpy(buf,local_path,sizeof(buf));
+					sm_add_part(buf,m->filename,sizeof(buf));
+
+					if ((fh = fopen(buf,"w")))
+					{
+						while (todownload)
+						{
+							int dl;
+							dl = tcp_read(imap_connection,buf,MIN((sizeof(buf)-4),todownload));
+
+							if (dl == -1 || !dl) break;
+							fwrite(buf,1,dl,fh);
+							todownload -= dl;
+						}
+						fclose(fh);
+					}
+				}
+			}
 		}
-		free(d->local_path);
-		imap_free(d->server);
-		free(d);
 	}
-	SM_RETURN(0,"%ld");
-	return 0;
+	if (callback)
+		thread_call_function_async(thread_get_main(), callback, 2, m, userdata);
+
+	SM_RETURN(success,"%ld");
+	return success;
 }
 
-/**
- * Moves the mail from a source folder to a destination folder.
- *
- * @param mail
- * @param src_folder
- * @param dest_folder
- * @return
- */
-int imap_move_mail(struct mail_info *mail, struct folder *src_folder, struct folder *dest_folder)
+/*****************************************************************************/
+
+struct imap_server *imap_malloc(void)
 {
-	struct imap_server *server;
-
-	if (!imap_start_thread()) return 0;
-	if (!folder_on_same_imap_server(src_folder,dest_folder)) return 0;
-	if (!(server = account_find_imap_server_by_folder(src_folder))) return 0;
-
-	if (thread_call_function_sync(imap_thread, imap_thread_move_mail, 4, mail, server, src_folder, dest_folder))
+	struct imap_server *imap;
+	if ((imap = (struct imap_server*)malloc(sizeof(*imap))))
 	{
-		return 1;
+		memset(imap,0,sizeof(struct imap_server));
+		imap->port = 143;
 	}
-	return 0;
+	return imap;
 }
 
-/**
- * Deletes a mail from the server.
- *
- * @param filename
- * @param folder
- * @return
- */
-int imap_delete_mail_by_filename(char *filename, struct folder *folder)
+/*****************************************************************************/
+
+struct imap_server *imap_duplicate(struct imap_server *imap)
 {
-	struct imap_server *server;
-
-	if (!imap_start_thread()) return 0;
-	if (!(server = account_find_imap_server_by_folder(folder))) return 0;
-
-	if (thread_call_function_sync(imap_thread, imap_thread_delete_mail_by_filename, 3, filename, server, folder))
+	struct imap_server *new_imap = imap_malloc();
+	if (new_imap)
 	{
-		return 1;
+		new_imap->name = mystrdup(imap->name);
+		new_imap->fingerprint = mystrdup(imap->fingerprint);
+		new_imap->login = mystrdup(imap->login);
+		new_imap->passwd = mystrdup(imap->passwd);
+		new_imap->title = mystrdup(imap->title);
+		new_imap->port = imap->port;
+		new_imap->active = imap->active;
+		new_imap->ssl = imap->ssl;
+		new_imap->starttls = imap->starttls;
+		new_imap->ask = imap->ask;
 	}
-	return 0;
+	return new_imap;
 }
 
-/**
- * Store the given mail in the given folder of an imap server.
- *
- * @param mail
- * @param source_dir
- * @param dest_folder
- * @return
- */
-int imap_append_mail(struct mail_info *mail, char *source_dir, struct folder *dest_folder)
+/*****************************************************************************/
+
+void imap_free(struct imap_server *imap)
 {
-	struct imap_server *server;
+	if (imap->name) free(imap->name);
+	if (imap->fingerprint) free(imap->fingerprint);
+	if (imap->login) free(imap->login);
+	if (imap->passwd) free(imap->passwd);
+	if (imap->title) free(imap->title);
+	free(imap);
+}
 
-	if (!imap_start_thread()) return 0;
-	if (!(server = account_find_imap_server_by_folder(dest_folder))) return 0;
+/*****************************************************************************/
 
-	if (thread_call_function_sync(imap_thread, imap_thread_append_mail, 4, mail, source_dir, server, dest_folder))
-	{
-		return 1;
-	}
-	return 0;
+int imap_new_connection_needed(struct imap_server *srv1, struct imap_server *srv2)
+{
+	if (!srv1 && !srv2) return 0;
+	if (!srv1) return 1;
+	if (!srv2) return 1;
+
+	return mystrcmp(srv1->name,srv2->name) || (srv1->port != srv2->port) || mystrcmp(srv1->login,srv2->login) ||
+		(mystrcmp(srv1->passwd,srv2->passwd) && !srv1->ask && !srv2->ask)  || (srv1->ask != srv2->ask) ||
+		(srv1->ssl != srv2->ssl) || (srv1->starttls != srv2->starttls);
 }
