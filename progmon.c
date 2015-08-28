@@ -24,6 +24,9 @@ static int progmon_total_work_done;
 /** @brief number of active progress monitors */
 static int progmon_number_of_actives;
 
+/** @brief the id for a new progress monitor */
+static int progmon_next_id;
+
 /** @brief arbitrate access to global data */
 static semaphore_t progmon_list_sem;
 
@@ -31,6 +34,7 @@ struct progmon_default
 {
 	struct progmon pm;
 
+	int id;
 	utf8 *name;
 	utf8 *working_on;
 	unsigned int work;
@@ -48,6 +52,7 @@ static void progmon_begin(struct progmon *pm, unsigned int work, const utf8 *txt
 
 	SM_DEBUGF(10,("%s\n",txt));
 	thread_lock_semaphore(progmon_list_sem);
+	pmd->id = progmon_next_id++;
 	list_insert_tail(&progmon_list,&pm->node);
 	progmon_total_work += work;
 	progmon_number_of_actives++;
@@ -117,11 +122,8 @@ static void progmon_done(struct progmon *pm)
 		simplemail_update_progress_monitors();
 }
 
-/**
- * Returns the total work.
- *
- * @return
- */
+/*****************************************************************************/
+
 unsigned int progmon_get_total_work(void)
 {
 	unsigned int tw;
@@ -133,11 +135,8 @@ unsigned int progmon_get_total_work(void)
 	return tw;
 }
 
-/**
- * Returns the total work work_done.
- *
- * @return
- */
+/*****************************************************************************/
+
 unsigned int progmon_get_total_work_done(void)
 {
 	unsigned int twd;
@@ -149,11 +148,8 @@ unsigned int progmon_get_total_work_done(void)
 	return twd;
 }
 
-/**
- * Return number of active monitors.
- *
- * @return
- */
+/*****************************************************************************/
+
 unsigned int progmon_get_number_of_actives(void)
 {
 	unsigned int noa;
@@ -165,11 +161,8 @@ unsigned int progmon_get_number_of_actives(void)
 	return noa;
 }
 
-/**
- * Creates a new progress monitor.
- *
- * @return
- */
+/*****************************************************************************/
+
 struct progmon *progmon_create(void)
 {
 	struct progmon_default *pm;
@@ -187,11 +180,8 @@ struct progmon *progmon_create(void)
 	return &pm->pm;
 }
 
-/**
- * Deletes the given progress monitor.
- *
- * @param pm
- */
+/*****************************************************************************/
+
 void progmon_delete(struct progmon *pm)
 {
 	struct progmon_default *pmd = (struct progmon_default*)pm;
@@ -203,12 +193,8 @@ void progmon_delete(struct progmon *pm)
 	free(pm);
 }
 
-/**
- * Scans available progress monitors.
- *
- * @param callback
- * @param udata
- */
+/*****************************************************************************/
+
 int progmon_scan(void (*callback)(struct progmon_info *, void *udata), void *udata)
 {
 	int num;
@@ -221,6 +207,7 @@ int progmon_scan(void (*callback)(struct progmon_info *, void *udata), void *uda
 	pm = (struct progmon_default*)list_first(&progmon_list);
 	while (pm)
 	{
+		info.id = pm->id;
 		info.name = pm->name;
 		info.work = pm->work;
 		info.work_done = pm->work_done;
@@ -236,11 +223,8 @@ int progmon_scan(void (*callback)(struct progmon_info *, void *udata), void *uda
 	return num;
 }
 
+/*****************************************************************************/
 
-/**
- *
- * @return
- */
 int progmon_init(void)
 {
 	int rc;
@@ -258,9 +242,8 @@ int progmon_init(void)
 	return rc;
 }
 
-/**
- * Deinitializes the prog monitors.
- */
+/*****************************************************************************/
+
 void progmon_deinit(void)
 {
 	SM_ENTER;

@@ -10,21 +10,24 @@ NONARCHSRCS=\
 	codecs.c \
 	codesets.c \
 	configuration.c \
+	coroutines.c \
 	dbx.c \
 	debug.c \
 	estimate.c \
 	filter.c \
 	folder.c \
+	folder_search_thread.c \
 	hash.c \
 	hmac_md5.c \
 	http.c \
 	imap.c \
 	imap_thread.c \
 	index.c \
-	index_naive.c \
 	index_external.c \
+	index_naive.c \
 	lists.c \
 	mail.c \
+	mail_support.c \
 	mbox.c \
 	md5.c \
 	parse.c \
@@ -42,6 +45,7 @@ NONARCHSRCS=\
 	spam.c \
 	ssl.c \
 	status.c \
+	string_lists.c \
 	support_indep.c \
 	taglines.c \
 	tcp.c \

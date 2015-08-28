@@ -58,22 +58,67 @@ struct progmon
 
 struct progmon_info
 {
+	/** A unique id */
+	int id;
+
 	utf8 *name;
 	utf8 *working_on;
 	unsigned int work;
 	unsigned int work_done;
 };
 
+/**
+ * Creates a new progress monitor.
+ *
+ * @return
+ */
 struct progmon *progmon_create(void);
+
+/**
+ * Deletes the given progress monitor.
+ *
+ * @param pm
+ */
 void progmon_delete(struct progmon *pm);
 
+/**
+ * Returns the total work.
+ *
+ * @return
+ */
 unsigned int progmon_get_total_work(void);
+
+/**
+ * Returns the total work work_done.
+ *
+ * @return
+ */
 unsigned int progmon_get_total_work_done(void);
+
+/**
+ * Return number of active monitors.
+ *
+ * @return
+ */
 unsigned int progmon_get_number_of_actives(void);
 
+/**
+ * Scans available progress monitors.
+ *
+ * @param callback
+ * @param udata
+ */
 int progmon_scan(void (*callback)(struct progmon_info *, void *udata), void *udata);
 
+/**
+ * Initializes the progmon component.
+ * @return
+ */
 int progmon_init(void);
+
+/**
+ * Deinitializes the prog monitors.
+ */
 void progmon_deinit(void);
 
 #endif

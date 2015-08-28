@@ -38,6 +38,7 @@
 #include "debug.h"
 #include "filter.h"
 #include "folder.h"
+#include "folder_search_thread.h"
 #include "imap_thread.h" /* imap_thread_xxx() */
 #include "lists.h"
 #include "mail.h"
@@ -75,8 +76,8 @@ static unsigned int autocheck_seconds_start; /* to compare with this */
 
 static void lazy_clean_list(void);
 
-/* the current mail should be viewed, returns the number of the window
-	which the function has opened or -1 for an error */
+/*****************************************************************************/
+
 int callback_read_active_mail(void)
 {
 	char *filename;
@@ -90,7 +91,8 @@ int callback_read_active_mail(void)
 	return callback_read_mail(f,m,-1);
 }
 
-/* Save the currently activated mail */
+/*****************************************************************************/
+
 void callback_save_active_mail(void)
 {
 	char *dest;
@@ -119,7 +121,13 @@ void callback_save_active_mail(void)
 	}
 }
 
-/* Touches the mail in the given folder */
+/**
+ * Touches the mail in the given folder such that it gets a READ state.
+ *
+ * @param f the folder where the mail is located.-
+ * @param mail the mail that should be touched.
+ * @return whether the mail status has actually been changed.
+ */
 static int touch_mail(struct folder *f, struct mail_info *mail)
 {
 	int refresh = 0;
@@ -145,6 +153,8 @@ static int touch_mail(struct folder *f, struct mail_info *mail)
 	return refresh;
 }
 
+/*****************************************************************************/
+
 int callback_read_mail(struct folder *f, struct mail_info *mail, int window)
 {
 	int num;
@@ -166,15 +176,8 @@ int callback_read_mail(struct folder *f, struct mail_info *mail, int window)
 	return num;
 }
 
-/**
- * The selected mails should be deleted. The user is not
- * bothered about the consequences.
- *
- * @param permanent 1 if mails should be deleted permanently (rather
- *     than moved to the dest drawer)
- *
- * @return 1 if mails were deleted. Otherwise 0 (e.g., if folder is in use).
- */
+/*****************************************************************************/
+
 int callback_delete_mails_silent(int permanent)
 {
 	struct folder *from_folder = main_get_folder();
@@ -228,9 +231,8 @@ int callback_delete_mails_silent(int permanent)
 	return 0;
 }
 
-/**
- * Deletes all selected mails.
- */
+/*****************************************************************************/
+
 void callback_delete_mails(void)
 {
 	struct folder *from_folder = main_get_folder();
@@ -273,7 +275,8 @@ void callback_delete_mails(void)
 	folder_unlock(from_folder);
 }
 
-/* a single mail of any folder should be deleted */
+/*****************************************************************************/
+
 int callback_delete_mail(struct mail_info *mail)
 {
 	struct folder *f = folder_find_by_mail(mail);
@@ -344,7 +347,8 @@ void callback_delete_mail_by_uid(char *user, char *server, char *path, unsigned 
 	folders_unlock();
 }
 
-/* get the address */
+/*****************************************************************************/
+
 void callback_get_address(void)
 {
 	struct mail_info *mail = main_get_active_mail();
@@ -406,34 +410,30 @@ static int callback_write_mail(char *from, char *to, char *replyto, char *subjec
 	return win_num;
 }
 
-/* a new mail should be written to the given address */
+/*****************************************************************************/
+
 void callback_write_mail_to(struct addressbook_entry_new *address)
 {
 	char *addr = address->email_array?address->email_array[0]:NULL;
 	callback_write_mail_to_str(addr,NULL);
 }
 
-/* a new mail should be written to a given address string */
+/*****************************************************************************/
+
 int callback_write_mail_to_str(char *str, char *subject)
 {
 	return callback_write_mail(NULL,str,NULL,subject,NULL);
 }
 
-/* a new mail should be written to a given address string */
+/*****************************************************************************/
+
 int callback_write_mail_to_str_with_body(char *str, char *subject, char *body)
 {
 	return callback_write_mail(NULL,str,NULL,subject,body);
 }
 
-/**
- * Open the mail associated with the give filename.
- *
- * @param mail_filename defines the mail, which should be opened. May be
- *  NULL to indicate that the user is queried about the file name.
- * @param window, defines the window id, in which the mail should be
- *  openen. May be -1.
- * @return
- */
+/*****************************************************************************/
+
 int callback_open_message(char *mail_filename, int window)
 {
 	char buf[380];
@@ -486,7 +486,8 @@ int callback_open_message(char *mail_filename, int window)
 	return num;
 }
 
-/* a new mail should be composed */
+/*****************************************************************************/
+
 void callback_new_mail(void)
 {
 	struct folder *f = main_get_folder();
@@ -494,7 +495,8 @@ void callback_new_mail(void)
 	callback_write_mail(f->def_from,f->def_to,f->def_replyto,NULL,NULL);
 }
 
-/* reply this mail */
+/*****************************************************************************/
+
 void callback_reply_mails(char *folder_path, int num, struct mail_info **to_reply_array)
 {
 	struct folder *f = folder_find_by_path(folder_path);
@@ -567,7 +569,8 @@ void callback_reply_mails(char *folder_path, int num, struct mail_info **to_repl
 	}
 }
 
-/* a mail should be replied */
+/*****************************************************************************/
+
 void callback_reply_selected_mails(void)
 {
 	struct mail_info *mail;
@@ -602,7 +605,8 @@ void callback_reply_selected_mails(void)
 	}
 }
 
-/* a mail should be forwarded */
+/*****************************************************************************/
+
 void callback_forward_mails(char *folder_path, int num, struct mail_info **to_forward_array)
 {
 	struct folder *f = folder_find_by_path(folder_path);
@@ -777,7 +781,8 @@ static int move_mail_helper(struct mail_info *mail, struct folder *from_folder, 
 	return success;
 }
 
-/* a single mail should be moved from a folder to another folder */
+/*****************************************************************************/
+
 void callback_move_mail(struct mail_info *mail, struct folder *from_folder, struct folder *dest_folder)
 {
 	if (from_folder != dest_folder)
@@ -802,7 +807,8 @@ void callback_move_mail(struct mail_info *mail, struct folder *from_folder, stru
 	}
 }
 
-/* mails has been droped onto the folder */
+/*****************************************************************************/
+
 void callback_maildrop(struct folder *dest_folder)
 {
 	struct folder *from_folder = main_get_folder();
@@ -864,7 +870,8 @@ void callback_maildrop(struct folder *dest_folder)
 	}
 }
 
-/* a single mail should be moved */
+/*****************************************************************************/
+
 int callback_move_mail_request(char *folder_path, struct mail_info *mail)
 {
 	struct folder *src_folder = folder_find_by_path(folder_path);
@@ -893,7 +900,8 @@ int callback_move_mail_request(char *folder_path, struct mail_info *mail)
 	return 0;
 }
 
-/* all selected mails should be moved */
+/*****************************************************************************/
+
 void callback_move_selected_mails(void)
 {
 	struct mail_info *mail;
@@ -939,22 +947,26 @@ void callback_move_selected_mails(void)
 	app_unbusy();
 }
 
-/* Called whenever the contents of the quick filter has been acknowledged
- * TODO: Implement me properly */
+/*****************************************************************************/
+
 void callback_quick_filter_changed(void)
 {
 	callback_folder_active();
 }
 
-/**
- * Called when the status button within the main window is clicked.
- */
+/*****************************************************************************/
+
 void callback_progmon_button_pressed(void)
 {
 	progmonwnd_open();
 }
 
-
+/**
+ * Touch the currently selected mail if it (still) matches the given one.
+ *
+ * @param f the folder
+ * @param m the mail
+ */
 static void touch_active_mail(struct folder *f, struct mail_info *m)
 {
 	/* Only touch mail if it is still the active one because
@@ -965,6 +977,12 @@ static void touch_active_mail(struct folder *f, struct mail_info *m)
 	}
 }
 
+/**
+ * Display the active mail if it (still) matches the given one.
+ *
+ * @param f the folder
+ * @param m the mail
+ */
 static void really_display_active_mail(struct folder *f, struct mail_info *m)
 {
 	SM_ENTER;
@@ -1016,9 +1034,8 @@ static void display_active_mail(struct folder *f, struct mail_info *m)
 	}
 }
 
-/**
- * Called whenever a mail has been selected in the main window.
- */
+/*****************************************************************************/
+
 void callback_mail_within_main_selected(void)
 {
 	/* delay the displaying, so it is still possible to select multiple mails
@@ -1026,9 +1043,8 @@ void callback_mail_within_main_selected(void)
 	thread_push_function_delayed(250, display_active_mail, 2, main_get_folder(), main_get_active_mail());
 }
 
-/**
- * Process the current selected folder and mark all mails which are identified as spam
- */
+/*****************************************************************************/
+
 void callback_check_selected_folder_for_spam(void)
 {
 	struct folder *folder = main_get_folder();
@@ -1083,7 +1099,8 @@ void callback_check_selected_folder_for_spam(void)
 	app_unbusy();
 }
 
-/* Move all mails marked as spam into the spam folder */
+/*****************************************************************************/
+
 void callback_move_spam_marked_mails(void)
 {
 	struct folder *folder = main_get_folder();
@@ -1113,7 +1130,8 @@ void callback_move_spam_marked_mails(void)
 	app_unbusy();
 }
 
-/* Adds all mails into the spam folder into the spam statistics */
+/*****************************************************************************/
+
 void callback_add_spam_folder_to_statistics(void)
 {
 	struct folder *spam_folder = folder_spam();
@@ -1132,7 +1150,8 @@ void callback_add_spam_folder_to_statistics(void)
 	app_unbusy();
 }
 
-/* classifies all mails within the selected folder as ham */
+/*****************************************************************************/
+
 void callback_classify_selected_folder_as_ham(void)
 {
 	struct folder *folder;
@@ -1155,7 +1174,8 @@ void callback_classify_selected_folder_as_ham(void)
 	app_unbusy();
 }
 
-/* the currently selected mail should be changed */
+/*****************************************************************************/
+
 void callback_change_mail(void)
 {
 	char *filename;
@@ -1183,7 +1203,8 @@ void callback_change_mail(void)
 	}
 }
 
-/* the raw contents of the selected mail show be showed */
+/*****************************************************************************/
+
 void callback_show_raw(void)
 {
 	char *filename;
@@ -1245,46 +1266,43 @@ out:
 
 }
 
-/**
- * Create a subject filter from the currently selected mails
- * and open the filter window.
- */
+/*****************************************************************************/
+
 void callback_create_sender_filter(void)
 {
 	simplemail_create_filter_from_current_mail_selection(FRCT_FROM);
 }
 
-/**
- * Create a subject filter from the currently selected mails
- * and open the filter window.
- */
+/*****************************************************************************/
+
 void callback_create_subject_filter(void)
 {
 	simplemail_create_filter_from_current_mail_selection(FRCT_SUBJECT);
 }
 
-/**
- * Create a recipient filter from the currently selected mails
- * and open the filter window.
- */
+/*****************************************************************************/
+
 void callback_create_recipient_filter(void)
 {
 	simplemail_create_filter_from_current_mail_selection(FRCT_RECEPIENTS);
 }
 
-/* mails should be fetched */
+/*****************************************************************************/
+
 void callback_fetch_mails(void)
 {
 	mails_dl(0);
 }
 
-/* mails should be sent */
+/*****************************************************************************/
+
 void callback_send_mails(void)
 {
 	mails_upload();
 }
 
-/* Check the mails of a single acount */
+/*****************************************************************************/
+
 void callback_check_single_account(int account_num)
 {
 	struct account *ac = (struct account*)list_find(&user.config.account_list,account_num);
@@ -1294,27 +1312,31 @@ void callback_check_single_account(int account_num)
 	}
 }
 
-/* open the search window */
+/*****************************************************************************/
+
 void callback_search(void)
 {
 	struct folder *f = main_get_folder();
 	search_open(f->name);
 }
 
-/* Start the search process with the given search options */
+/*****************************************************************************/
+
 void callback_start_search(struct search_options *so)
 {
 	search_clear_results();
 	folder_start_search(so);
 }
 
-/* Stop the search process */
+/*****************************************************************************/
+
 void callback_stop_search(void)
 {
 	thread_abort(NULL);
 }
 
-/* filter the mails */
+/*****************************************************************************/
+
 void callback_filter(void)
 {
 	struct folder *f = main_get_folder();
@@ -1326,25 +1348,29 @@ void callback_filter(void)
 	}
 }
 
-/* the filters should be edited */
+/*****************************************************************************/
+
 void callback_edit_filter(void)
 {
 	filter_open();
 }
 
-/* addressbook should be opened */
+/*****************************************************************************/
+
 void callback_addressbook(void)
 {
 	addressbookwnd_open();
 }
 
-/* Open the configuration window */
+/*****************************************************************************/
+
 void callback_config(void)
 {
 	open_config();
 }
 
-/* a new folder has been activated */
+/*****************************************************************************/
+
 void callback_folder_active(void)
 {
 	struct folder *folder = main_get_folder();
@@ -1359,13 +1385,15 @@ void callback_folder_active(void)
 	}
 }
 
-/* count the signatures used in folders */
+/*****************************************************************************/
+
 int callback_folder_count_signatures(char *def_signature)
 {
 	return folder_count_signatures(def_signature);
 }
 
-/* a new mail should be added to a given folder */
+/*****************************************************************************/
+
 struct mail_info *callback_new_mail_to_folder(char *filename, struct folder *folder)
 {
 	int pos;
@@ -1412,7 +1440,8 @@ struct mail_info *callback_new_mail_to_folder(char *filename, struct folder *fol
 	return mail;
 }
 
-/* a new mail should be added to a folder, only filename known */
+/*****************************************************************************/
+
 struct mail_info *callback_new_mail_to_folder_by_file(char *filename)
 {
 	int pos;
@@ -1479,14 +1508,8 @@ static void simplemail_new_mail_arrived(struct mail_info *mail, struct folder *f
 	read_refresh_prevnext_button(folder);
 }
 
-/**
- * Tries to match the given mail with criterias of any remote filter.
- * Returns 1 if mail should be ignored otherwise 0.
- * (yes, this has to be extended in the future)
- *
- * @param mail the mail that is subjected to the comparision.
- * @return whether the mail the criterias of any filter.
- */
+/*****************************************************************************/
+
 int callback_remote_filter_mail(struct mail_info *mail)
 {
 	struct filter *f = filter_list_first();
@@ -1504,26 +1527,16 @@ int callback_remote_filter_mail(struct mail_info *mail)
 	return 0;
 }
 
-/**
- * Import mails from a mbox file
- *
- * in_folder_ptr might be NULL.
- */
-void callback_import_mbox(int *in_folder_ptr)
-{
-	int in_folder = in_folder_ptr?*in_folder_ptr:0;
-	struct folder *f=NULL;
-	char *filename;
+/*****************************************************************************/
 
-	if (in_folder)
-	{
-		if (!(f = main_get_folder())) return;
-	}
+void callback_import_mbox(void)
+{
+	char *filename;
 
 	filename = sm_request_file(_("Choose the file which you like to import"),"",0,NULL);
 	if (filename && *filename)
 	{
-		if (!mbox_import_to_folder(f,filename))
+		if (!mbox_import_to_folder(NULL,filename))
 		{
 			sm_request(NULL,_("Couldn't start process for importing.\n"),_("Ok"));
 		}
@@ -1531,24 +1544,16 @@ void callback_import_mbox(int *in_folder_ptr)
 	free(filename);
 }
 
-/**
- * Import dbx mailes (outlook express)
- */
-void callback_import_dbx(int *in_folder_ptr)
-{
-	int in_folder = in_folder_ptr?*in_folder_ptr:0;
-	struct folder *f=NULL;
-	char *filename;
+/*****************************************************************************/
 
-	if (in_folder)
-	{
-		if (!(f = main_get_folder())) return;
-	}
+void callback_import_dbx(void)
+{
+	char *filename;
 
 	filename = sm_request_file(_("Choose the file which you like to import"),"",0,".dbx");
 	if (filename && *filename)
 	{
-		if (!dbx_import_to_folder(f,filename))
+		if (!dbx_import_to_folder(NULL,filename))
 		{
 			sm_request(NULL,_("Couldn't start process for importing.\n"),_("Ok"));
 		}
@@ -1556,7 +1561,8 @@ void callback_import_dbx(int *in_folder_ptr)
 	free(filename);
 }
 
-/* Export mails */
+/*****************************************************************************/
+
 void callback_export(void)
 {
 	struct folder *f;
@@ -1625,19 +1631,8 @@ static void simplemail_gather_mails(void)
 	chdir(buf);
 }
 
-/**
- * @brief A new mail has been arrived for the incoming folder.
- *
- * A new mail has been arrived. In the current implementation the mail
- * is not immediately added to the viewer but collected and then added
- * to the viewer after a short period of time.
- *
- * @param filename defines the filename of the new mail
- * @param is_spam is the mail spam?
- *
- * @note FIXME: This functionality takes (mis)usage of next_thread_mail field
- *       FIXME: When SM is quit while mails are downloaded those mails get not presented to the user the next time.
- */
+/*****************************************************************************/
+
 void callback_new_mail_arrived_filename(char *filename, int is_spam)
 {
 	struct mail_info *mail;
@@ -1667,28 +1662,15 @@ void callback_new_mail_arrived_filename(char *filename, int is_spam)
 	chdir(buf);
 }
 
-/**
- * @brief A new mail arrived into an imap folder
- *
- * @param filename the name of the filename.
- * @param user defines the user name of the login
- * @param server defines the name of the imap server
- * @param path defines the path on the imap server
- */
+/*****************************************************************************/
+
 void callback_new_imap_mail_arrived(char *filename, char *user, char *server, char *path)
 {
 	callback_new_imap_mails_arrived(1,&filename,user,server,path);
 }
 
-/**
- * New mails arrived into an imap folder
- *
- * @param num_filenames number of file names that are stored in filenames array
- * @param filenames an array of filenames.
- * @param user defines the user name of the login
- * @param server defines the name of the imap server
- * @param path defines the path on the imap server
- */
+/*****************************************************************************/
+
 void callback_new_imap_mails_arrived(int num_filenames, char **filenames, char *user, char *server, char *path)
 {
 	struct mail_info *mail;
@@ -1721,15 +1703,8 @@ void callback_new_imap_mails_arrived(int num_filenames, char **filenames, char *
 	chdir(buf);
 }
 
-/**
- * Sets a new uid_valid and uid_next for the given imap folder.
- *
- * @param uid_validity
- * @param uid_next
- * @param user defines the user name of the login
- * @param server defines the name of the imap server
- * @param path defines the path on the imap server
- */
+/*****************************************************************************/
+
 void callback_new_imap_uids(unsigned int uid_validity, unsigned int uid_next, char *user, char *server, char *path)
 {
 	struct folder *f;
@@ -1743,11 +1718,8 @@ void callback_new_imap_uids(unsigned int uid_validity, unsigned int uid_next, ch
 	folder_config_save(f);
 }
 
-/**
- * The given amount of new mails have been just downloaded.
- *
- * @param num the number of new mails.
- */
+/*****************************************************************************/
+
 void callback_number_of_mails_downloaded(int num)
 {
 	if (num && user.config.receive_sound)
@@ -1761,7 +1733,8 @@ void callback_number_of_mails_downloaded(int num)
   }
 }
 
-/* a new mail has been written */
+/*****************************************************************************/
+
 void callback_new_mail_written(struct mail_info *mail)
 {
 	folder_add_mail(folder_outgoing(),mail,1);
@@ -1773,7 +1746,8 @@ void callback_new_mail_written(struct mail_info *mail)
 	read_refresh_prevnext_button(folder_outgoing());
 }
 
-/* a mail has been send so it can be moved to the "Sent" drawer now */
+/*****************************************************************************/
+
 void callback_mail_has_been_sent(char *filename)
 {
 	struct filter *f;
@@ -1804,7 +1778,8 @@ void callback_mail_has_been_sent(char *filename)
 	}
 }
 
-/* a mail has NOT been send, something went wrong, set ERROR status */
+/*****************************************************************************/
+
 void callback_mail_has_not_been_sent(char *filename)
 {
 	struct folder *out = folder_outgoing();
@@ -1821,7 +1796,8 @@ void callback_mail_has_not_been_sent(char *filename)
 	}
 }
 
-/* adds a new imap folder */
+/*****************************************************************************/
+
 void callback_add_imap_folder(char *user, char *server, char *path)
 {
 	struct folder *folder;
@@ -2048,16 +2024,8 @@ static void lazy_clean_list(void)
 	thread_unlock_semaphore(lazy_semaphore);
 }
 
-/**
- * @brief Loads the excerpt of the given mail of the current folder
- * in a lazy fashion.
- *
- * In order to load the excerpt in a lazy fashion this functions spawns a
- * sub thread.
- *
- * @param mail
- * @return whether successful
- */
+/*****************************************************************************/
+
 int simplemail_get_mail_info_excerpt_lazy(struct mail_info *mail)
 {
 	struct mail_info_node *node;
@@ -2094,7 +2062,8 @@ int simplemail_get_mail_info_excerpt_lazy(struct mail_info *mail)
 	return 1;
 }
 
-/* a mail has been changed/replaced by the user */
+/*****************************************************************************/
+
 void callback_mail_changed(struct folder *folder, struct mail_info *oldmail, struct mail_info *newmail)
 {
 	if (main_get_folder() == folder)
@@ -2104,7 +2073,8 @@ void callback_mail_changed(struct folder *folder, struct mail_info *oldmail, str
 	}
 }
 
-/* mark/unmark all selected mails */
+/*****************************************************************************/
+
 void callback_mails_mark(int mark)
 {
 	struct folder *folder = main_get_folder();
@@ -2130,7 +2100,8 @@ void callback_mails_mark(int mark)
 	}
 }
 
-/* set the status of all selected mails */
+/*****************************************************************************/
+
 void callback_mails_set_status(int status)
 {
 	struct folder *folder = main_get_folder();
@@ -2180,7 +2151,8 @@ void callback_mails_set_status(int status)
 	}
 }
 
-/* Selected mails are spam */
+/*****************************************************************************/
+
 void callback_selected_mails_are_spam(void)
 {
 	struct folder *folder = main_get_folder();
@@ -2205,7 +2177,8 @@ void callback_selected_mails_are_spam(void)
 	}
 }
 
-/* Selected mails are ham */
+/*****************************************************************************/
+
 void callback_selected_mails_are_ham(void)
 {
 	struct folder *folder = main_get_folder();
@@ -2242,7 +2215,8 @@ void callback_selected_mails_are_ham(void)
 	}
 }
 
-/* Check if selected mails are spam */
+/*****************************************************************************/
+
 void callback_check_selected_mails_if_spam(void)
 {
 	struct folder *folder = main_get_folder();
@@ -2277,11 +2251,8 @@ void callback_check_selected_mails_if_spam(void)
 	array_free(white);
 }
 
-/**
- * Import an address book into SimpleMail.
- *
- * @return 1 for success, 0 otherwise.
- */
+/*****************************************************************************/
+
 int callback_import_addressbook(void)
 {
 	int rc = 0;
@@ -2299,7 +2270,8 @@ int callback_import_addressbook(void)
 	return rc;
 }
 
-/* apply a single filter in the active folder */
+/*****************************************************************************/
+
 void callback_apply_folder(struct filter *filter)
 {
 	struct folder *folder = main_get_folder();
@@ -2311,13 +2283,15 @@ void callback_apply_folder(struct filter *filter)
 	}
 }
 
-/* create a new folder */
+/*****************************************************************************/
+
 void callback_new_folder(void)
 {
-	folder_edit_new_path(new_folder_path());
+	folder_edit_new_path(folder_get_possible_path());
 }
 
-/* create a new group */
+/*****************************************************************************/
+
 void callback_new_group(void)
 {
 	folder_add_group(_("New Group"));
@@ -2327,7 +2301,8 @@ void callback_new_group(void)
 	filter_update_folder_list();
 }
 
-/* create a new folder */
+/*****************************************************************************/
+
 void callback_new_folder_path(char *path, char *name)
 {
 	folder_add_with_name(path, name);
@@ -2337,7 +2312,8 @@ void callback_new_folder_path(char *path, char *name)
 	filter_update_folder_list();
 }
 
-/* Remove the selected folder */
+/*****************************************************************************/
+
 void callback_remove_folder(void)
 {
 	struct folder *f = main_get_folder();
@@ -2360,17 +2336,8 @@ void callback_remove_folder(void)
 	}
 }
 
-/**
- * Called on an SSL verification failure.
- *
- * @param server_name the name of the server as supplied by the user to which the ssl connection failed
- * @param reason the reason for the failure.
- * @param cert_summary the summary for the certificate.
- * @param sha1_ascii the sha1 of the failed certificate.
- * @param sha256_ascci the sha256 of the failed certificate. If first byte is a 0 byte then it is ignored.
- * @return 0 whether the any connection attempt should be aborted, any other value when
- *  the user accepts the risk.
- */
+/*****************************************************************************/
+
 int callback_failed_ssl_verification(char *server_name, char *reason, char *cert_summary, char *sha1_ascii, char *sha256_ascii)
 {
 	int choice;
@@ -2395,7 +2362,13 @@ int callback_failed_ssl_verification(char *server_name, char *reason, char *cert
 	return !!choice;
 }
 
-/* called when imap folders has been received */
+/**
+ * Callback that is called when the imap folders are received.
+ *
+ * @param server
+ * @param all_folder_list
+ * @param sub_folder_list
+ */
 static void callback_received_imap_folders(struct imap_server *server, struct string_list *all_folder_list, struct string_list *sub_folder_list)
 {
 	struct folder *f = folder_find_by_imap(server->login, server->name, "");
@@ -2405,7 +2378,8 @@ static void callback_received_imap_folders(struct imap_server *server, struct st
 	folder_config_save(f);
 }
 
-/*  */
+/*****************************************************************************/
+
 void callback_imap_get_folders(struct folder *f)
 {
 	if (f->is_imap && f->special == FOLDER_SPECIAL_GROUP)
@@ -2419,7 +2393,8 @@ void callback_imap_get_folders(struct folder *f)
 	}
 }
 
-/* */
+/*****************************************************************************/
+
 void callback_imap_submit_folders(struct folder *f, struct string_list *list)
 {
 	if (f->is_imap && f->special == FOLDER_SPECIAL_GROUP)
@@ -2434,7 +2409,8 @@ void callback_imap_submit_folders(struct folder *f, struct string_list *list)
 	}
 }
 
-/* edit folder settings */
+/*****************************************************************************/
+
 void callback_edit_folder(void)
 {
 	struct folder *from_folder = main_get_folder();
@@ -2444,7 +2420,8 @@ void callback_edit_folder(void)
 	}
 }
 
-/* set the attributes of a folder like in the folder window */
+/*****************************************************************************/
+
 void callback_change_folder_attrs(void)
 {
 	struct folder *f = folder_get_changed_folder();
@@ -2478,18 +2455,16 @@ void callback_change_folder_attrs(void)
 	filter_update_folder_list();
 }
 
-/**
- * Reload the folders' order and refresh the view.
- */
+/*****************************************************************************/
+
 void callback_reload_folder_order(void)
 {
 	folder_load_order();
 	callback_refresh_folders();
 }
 
-/**
- * Refresh the view of the folders.
- */
+/*****************************************************************************/
+
 void callback_refresh_folders(void)
 {
 	main_refresh_folders();
@@ -2498,9 +2473,8 @@ void callback_refresh_folders(void)
 	filter_update_folder_list();
 }
 
-/**
- * The configuration has been changed.
- */
+/*****************************************************************************/
+
 void callback_config_changed(void)
 {
 	/* Build the check single account menu */
@@ -2512,19 +2486,15 @@ void callback_config_changed(void)
 	folder_refresh_signature_cycle();
 }
 
-/**
- * Select the mail specified by the num.
- *
- * @param num the index of the mail to be selected.
- */
+/*****************************************************************************/
+
 void callback_select_mail(int num)
 {
 	main_select_mail(num);
 }
 
-/**
- * Delete all indexfiles.
- */
+/*****************************************************************************/
+
 void callback_delete_all_indexfiles(void)
 {
 	app_busy();
@@ -2532,9 +2502,8 @@ void callback_delete_all_indexfiles(void)
 	app_unbusy();
 }
 
-/**
- * Save all indexfiles.
- */
+/*****************************************************************************/
+
 void callback_save_all_indexfiles(void)
 {
 	app_busy();
@@ -2542,9 +2511,8 @@ void callback_save_all_indexfiles(void)
 	app_unbusy();
 }
 
-/**
- * Rescan the currently selected folder.
- */
+/*****************************************************************************/
+
 void callback_rescan_folder(void)
 {
 	struct folder *f = main_get_folder();
@@ -2712,9 +2680,8 @@ static void callback_timer(void)
 	thread_push_function_delayed(1000, callback_timer, 0);
 }
 
-/**
- * Resets the auto timer
- */
+/*****************************************************************************/
+
 void callback_autocheck_reset(void)
 {
 	autocheck_seconds_start = sm_get_current_seconds();
@@ -2732,9 +2699,8 @@ static void simplemail_update_progmonwnd(void)
 	progmonwnd_update(0);
 }
 
-/**
- * Updates the progress monitor views.
- */
+/*****************************************************************************/
+
 void simplemail_update_progress_monitors(void)
 {
 	SM_ENTER;
@@ -2758,9 +2724,8 @@ void simplemail_update_progress_monitors(void)
 }
 
 
-/**
- * Deinitializes SimpleMail.
- */
+/*****************************************************************************/
+
 void simplemail_deinit(void)
 {
 	SM_ENTER;
@@ -2794,11 +2759,8 @@ void simplemail_deinit(void)
 	debug_deinit();
 }
 
-/**
- * Initializes SimpleMail.
- *
- * @return 1 on succeess
- */
+/*****************************************************************************/
+
 int simplemail_init(void)
 {
 	if (!debug_init())
@@ -2875,11 +2837,8 @@ out:
 	return 0;
 }
 
-/**
- * SimpleMail's entry point.
- *
- * @return 0 on success
- */
+/*****************************************************************************/
+
 int simplemail_main(void)
 {
 	if (simplemail_init())

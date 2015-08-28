@@ -17,34 +17,18 @@
 ***************************************************************************/
 
 /**
- * @file http.h
+ * @file folder_search_thread.h
  */
 
-#ifndef SM__HTTP_H
-#define SM__HTTP_H
-
-/**
- * Stores the photo of the given email into the given path.
- *
- * @param path the path where the photo shall be stored
- * @param email the email address for which the photo shall be downloaded.
- * @return 1 on success, 0 otherwise.
- *
- * @note this is obsolete
- */
-int http_download_photo(char *path, char *email);
+#ifndef SM__FOLDER_SEARCH_THREAD_H
+#define SM__FOLDER_SEARCH_THREAD_H
 
 /**
- * Download the contents of the given URI into the given buffer.
+ * Start the search with the given options. It starts a separate thread for
+ * doing so.
  *
- * @param uri the URI that points to the resource to be downloaded.
- * @param buf pointer to variable where the pointer of the buffer is stored
- *  that contains the contents of the resource.
- * @param buf_len pointer to a variable to which the length of the data that has
- *  been downloaded will be stored.
- * @return 1 on success, 0 otherwise.
+ * @param sopt the options for the search
  */
-int http_download(char *uri, void **buf, int *buf_len);
+void folder_start_search(struct search_options *sopt);
 
 #endif
-

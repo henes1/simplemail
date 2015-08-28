@@ -251,9 +251,12 @@ static int (*get_compare_function(int sort_mode, int *reverse, int folder_type))
 	return NULL; /* thread */
 }
 
-/******************************************************************
- Set the sort functions for mail_compare
-*******************************************************************/
+/**
+ * Set the sort functions for mail_compare in accordance of the current
+ * settings.
+ *
+ * @param folder
+ */
 static void mail_compare_set_sort_mode(struct folder *folder)
 {
 	compare_primary = get_compare_function(folder->primary_sort, &compare_primary_reverse, folder->type);
@@ -297,9 +300,12 @@ struct folder_node
 	struct folder folder; /**< The actual folder, most follow */
 };
 
-/******************************************************************
- Returns the node of the folder, for list handling
-*******************************************************************/
+/**
+ * Returns the folder node of a given plain folder.
+ *
+ * @param f the folder data
+ * @return the entire folder_node
+ */
 static struct folder_node *find_folder_node_by_folder(struct folder *f)
 {
 	/* TODO: This could be done by pointer arithmetic much faster */
@@ -425,9 +431,8 @@ static void folder_invalidate_indexfile(struct folder *folder)
 	}
 }
 
-/**
- * @brief delete all the index files.
- */
+/*****************************************************************************/
+
 void folder_delete_all_indexfiles(void)
 {
 	struct folder *f = folder_first();
@@ -439,10 +444,14 @@ void folder_delete_all_indexfiles(void)
 	}
 }
 
-/******************************************************************
- Prepare the folder for a given ammount of mails.
- Returns 0 on failure, else 1
-*******************************************************************/
+/**
+ * Prepare the folder to contain the given amount of mails.
+ *
+ *
+ * @param folder the folder to be prepared
+ * @param num_mails number of mails that the folder shall contain at least
+ * @return 0 on failure, else 1
+ */
 static int folder_prepare_for_additional_mails(struct folder *folder, int num_mails)
 {
 	struct mail_info **new_mail_array;
@@ -499,13 +508,8 @@ static int folder_set_pending_flag_in_indexfile(struct folder *folder)
 	SM_RETURN(rc,"%ld");
 }
 
-/******************************************************************
- Adds a new mail into the given folder. The mail is added at the
- end and the sort is destroyed if sort = 0. Else the mail is
- correctly sorted in and the sorted array is not destroyed.
- The position of the mail is returned if the array was sorted or
- the number of mails if not else (-1) for an error.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_add_mail(struct folder *folder, struct mail_info *mail, int sort)
 {
 	int i,pos;
@@ -783,9 +787,8 @@ static void folder_remove_mail_info(struct folder *folder, struct mail_info *mai
 	folder_unlock(folder);
 }
 
-/******************************************************************
- Mark the mail as deleted (only imap folders)
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_mark_mail_as_deleted(struct folder *folder, struct mail_info *mail)
 {
 	char *newfilename = mystrdup(mail->filename);
@@ -809,9 +812,8 @@ void folder_mark_mail_as_deleted(struct folder *folder, struct mail_info *mail)
 	chdir(buf);
 }
 
-/******************************************************************
- Mark the mail as undeleted (only imap folders)
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_mark_mail_as_undeleted(struct folder *folder, struct mail_info *mail)
 {
 	char *newfilename = mystrdup(mail->filename);
@@ -835,10 +837,8 @@ void folder_mark_mail_as_undeleted(struct folder *folder, struct mail_info *mail
 	chdir(buf);
 }
 
-/******************************************************************
- Replaces a mail with a new one (the replaced mail isn't freed)
- in the given folder
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_replace_mail(struct folder *folder, struct mail_info *toreplace, struct mail_info *newmail)
 {
 	int i;
@@ -878,10 +878,8 @@ void folder_replace_mail(struct folder *folder, struct mail_info *toreplace, str
   folder_unlock(folder);
 }
 
-/******************************************************************
- Returns the number of mails. For groups it counts the whole
- number of mails. -1 for an error
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_number_of_mails(struct folder *folder)
 {
 	if (folder->special == FOLDER_SPECIAL_GROUP)
@@ -905,10 +903,8 @@ int folder_number_of_mails(struct folder *folder)
 	} else return folder->num_index_mails;
 }
 
-/******************************************************************
- Returns the number of unread mails. For groups it counts the whole
- number of unread mails. -1 for an error
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_number_of_unread_mails(struct folder *folder)
 {
 	if (folder->special == FOLDER_SPECIAL_GROUP)
@@ -932,10 +928,8 @@ int folder_number_of_unread_mails(struct folder *folder)
 	} else return folder->unread_mails;
 }
 
-/******************************************************************
- Returns the number of new mails. For groups it counts the whole
- number of unread mails. -1 for an error
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_number_of_new_mails(struct folder *folder)
 {
 	if (folder->special == FOLDER_SPECIAL_GROUP)
@@ -959,13 +953,8 @@ int folder_number_of_new_mails(struct folder *folder)
 	} else return folder->new_mails;
 }
 
-/******************************************************************
- Sets a new status of a mail which is inside the given folder.
- It also renames the file, to match the
- status. (on the Amiga this will be done by setting a new comment later)
- Also note that this function makes no check if the status change makes
- sense.
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_set_mail_status(struct folder *folder, struct mail_info *mail, int status_new)
 {
 	int i, mail_found = 0;
@@ -1042,9 +1031,8 @@ void folder_set_mail_status(struct folder *folder, struct mail_info *mail, int s
 	}
 }
 
-/******************************************************************
- Set the flags of a mail.
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_set_mail_flags(struct folder *folder, struct mail_info *mail, int flags_new)
 {
 	if (mail->flags == flags_new) return;
@@ -1064,9 +1052,8 @@ void folder_set_mail_flags(struct folder *folder, struct mail_info *mail, int fl
 	folder_invalidate_indexfile(folder);
 }
 
-/******************************************************************
- Count the signatures.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_count_signatures(char *def_signature)
 {
 	struct folder *f = folder_first();
@@ -1082,9 +1069,8 @@ int folder_count_signatures(char *def_signature)
 	return use_count;
 }
 
-/******************************************************************
- Finds a mail with a given filename in the given folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_find_mail_by_filename(struct folder *folder, char *filename)
 {
 	int i;
@@ -1114,10 +1100,8 @@ struct mail_info *folder_find_mail_by_filename(struct folder *folder, char *file
 	return NULL;
 }
 
-/******************************************************************
- Find a mail with a given uid (which maps to a filename) in the
- given imap folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_imap_find_mail_by_uid(struct folder *folder, unsigned int uid)
 {
 	int i,l;
@@ -1506,15 +1490,8 @@ bailout:
 	folder_node_dispose(node);
 	return NULL;
 }
+/*****************************************************************************/
 
-/**
- * Adds a new folder that stores messages in the given path
- * and has the given name.
- *
- * @param path
- * @param name
- * @return
- */
 struct folder *folder_add_with_name(char *path, char *name)
 {
 	struct folder *f = folder_add(path);
@@ -1557,12 +1534,8 @@ static struct folder_node *folder_create_group(char *name)
 	return NULL;
 }
 
-/**
- * Adds a folder group to the internal folder list with a given name.
- *
- * @param name
- * @return
- */
+/*****************************************************************************/
+
 struct folder *folder_add_group(char *name)
 {
 	struct folder_node *node = folder_create_group(name);
@@ -1574,13 +1547,8 @@ struct folder *folder_add_group(char *name)
 	return NULL;
 }
 
-/**
- * Adds an folder specified by the given path to an imap folder.
- *
- * @param parent specifies the parent imap folder.
- * @param imap_path the imap path of the new folder.
- * @return
- */
+/*****************************************************************************/
+
 struct folder *folder_add_imap(struct folder *parent, char *imap_path)
 {
 	char *name;
@@ -1657,12 +1625,8 @@ static void folder_reparent_all(struct folder *old_p, struct folder *new_p)
 	}
 }
 
-/**
- * Removes the given folder from the folder list, if possible.
- *
- * @param f folder to be removed.
- * @return 0 on failure, otherwise the call has been succeeded.
- */
+/*****************************************************************************/
+
 int folder_remove(struct folder *f)
 {
   if (!folder_attempt_lock(f))
@@ -1798,12 +1762,8 @@ int folder_remove(struct folder *f)
 	return 0;
 }
 
-/******************************************************************
- Create a live filter folder using the given filter string.
+/*****************************************************************************/
 
- TODO: Add support for imap. Add better ref support. Add real live
- support.
-*******************************************************************/
 struct folder *folder_create_live_filter(struct folder *folder, utf8 *filter)
 {
 	struct folder *f;
@@ -1827,27 +1787,24 @@ struct folder *folder_create_live_filter(struct folder *folder, utf8 *filter)
 	return NULL;
 }
 
-/******************************************************************
- Free all memory associated with a live folder
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_delete_live_folder(struct folder *live_folder)
 {
 	thread_dispose_semaphore(live_folder->sem);
 	free(live_folder);
 }
 
-/******************************************************************
- Unlink all folders from the list
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_unlink_all(void)
 {
 	struct folder_node *node;
 	while ((node = (struct folder_node*)list_remove_tail(&folder_list)));
 }
 
-/******************************************************************
- Adds a folder to the tree
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_add_to_tree(struct folder *f,struct folder *parent)
 {
 	struct folder_node *fnode = (struct folder_node*)(((char*)f)-sizeof(struct node));
@@ -1993,9 +1950,8 @@ static int folder_config_load(struct folder *f)
 	return rc;
 }
 
-/******************************************************************
- Save the current configuration for the folder
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_config_save(struct folder *f)
 {
 	char buf[256];
@@ -2049,10 +2005,8 @@ void folder_config_save(struct folder *f)
 	}
 }
 
-/******************************************************************
- Sets the imap folder lists of a given folders. The list elements
- are copied.
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_imap_set_folders(struct folder *folder, struct string_list *all_folders_list, struct string_list *sub_folders_list)
 {
 	struct string_node *node;
@@ -2080,10 +2034,8 @@ void folder_imap_set_folders(struct folder *folder, struct string_list *all_fold
 	}
 }
 
-/******************************************************************
- Test if the setting the foldersetting would require a reload
- (the mails would get disposed and reloaded)
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_set_would_need_reload(struct folder *f, char *newname, char *newpath, int newtype, char *newdefto)
 {
 	/* Currentry we need never to reload the mails because the message id and
@@ -2106,22 +2058,8 @@ int folder_set_would_need_reload(struct folder *f, char *newname, char *newpath,
 #endif
 }
 
-/**
- * Set some folder attributes. Returns 1 if the folder must be
- * refreshed in the gui.
- *
- * @param f
- * @param newname
- * @param newpath
- * @param newtype
- * @param newdefto
- * @param newdeffrom
- * @param newdefreplyto
- * @param newdefsignature
- * @param prim_sort
- * @param second_sort
- * @return
- */
+/*****************************************************************************/
+
 int folder_set(struct folder *f, char *newname, char *newpath, int newtype, char *newdefto, char *newdeffrom, char *newdefreplyto, char* newdefsignature, int prim_sort, int second_sort)
 {
 	int refresh = 0;
@@ -2245,9 +2183,8 @@ int folder_set(struct folder *f, char *newname, char *newpath, int newtype, char
 	return refresh;
 }
 
-/******************************************************************
- Gets the first folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_first(void)
 {
 	struct folder_node *node = (struct folder_node*)list_first(&folder_list);
@@ -2255,10 +2192,8 @@ struct folder *folder_first(void)
 	return NULL;
 }
 
+/*****************************************************************************/
 
-/******************************************************************
- Returns the prev folder
-*******************************************************************/
 struct folder *folder_prev(struct folder *f)
 {
 	if (f)
@@ -2272,9 +2207,8 @@ struct folder *folder_prev(struct folder *f)
 	return NULL;
 }
 
-/******************************************************************
- Returns the next folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_next(struct folder *f)
 {
 	if (f)
@@ -2288,9 +2222,8 @@ struct folder *folder_next(struct folder *f)
 	return NULL;
 }
 
-/******************************************************************
- Finds a special folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_find_special(int sp)
 {
 	struct folder *f = folder_first();
@@ -2302,9 +2235,8 @@ struct folder *folder_find_special(int sp)
 	return NULL;
 }
 
-/******************************************************************
- Returns the given imap folder server
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_find_by_imap(char *user, char *server, char *path)
 {
 	struct folder *f = folder_first();
@@ -2382,17 +2314,15 @@ struct folder *folder_deleted(void)
 	return folder_find_special(FOLDER_SPECIAL_DELETED);
 }
 
-/******************************************************************
- Returns the spam folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_spam(void)
 {
 	return folder_find_special(FOLDER_SPECIAL_SPAM);
 }
 
-/******************************************************************
- Finds a folder
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_find(int pos)
 {
 	struct folder_node *node = (struct folder_node*)list_find(&folder_list,pos);
@@ -2400,9 +2330,8 @@ struct folder *folder_find(int pos)
 	return &node->folder;
 }
 
-/******************************************************************
- Returns the position of the folder. -1 if not in the list.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_position(struct folder *f)
 {
 	struct folder *lf = folder_first();
@@ -2416,9 +2345,8 @@ int folder_position(struct folder *f)
 	return -1;
 }
 
-/******************************************************************
- Finds a folder by name. Returns NULL if folder hasn't found
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_find_by_name(char *name)
 {
 	struct folder_node *node = (struct folder_node*)list_first(&folder_list);
@@ -2430,9 +2358,12 @@ struct folder *folder_find_by_name(char *name)
 	return NULL;
 }
 
-/******************************************************************
- Finds a group folder by name. Returns NULL if folder hasn't found
-*******************************************************************/
+/**
+ * Finds a group folder by name.
+ *
+ * @param name the name of the group folder.
+ * @return the group folder or NULL
+ */
 static struct folder *folder_find_group_by_name(char *name)
 {
 	struct folder_node *node = (struct folder_node*)list_first(&folder_list);
@@ -2444,12 +2375,8 @@ static struct folder *folder_find_group_by_name(char *name)
 	return NULL;
 }
 
-/**
- * Finds a folder by path. Returns NULL if folder hasn't found.
- *
- * @param name
- * @return
- */
+/*****************************************************************************/
+
 struct folder *folder_find_by_path(char *name)
 {
 	struct folder_node *node = (struct folder_node*)list_first(&folder_list);
@@ -2461,13 +2388,8 @@ struct folder *folder_find_by_path(char *name)
 	return NULL;
 }
 
-/**
- * Returns the folder that contains a file with the given name.
- *
- * @param filename the name may be absolute or relative (in this case,
- *        the folder may be not the only one)
- * @return
- */
+/*****************************************************************************/
+
 struct folder *folder_find_by_file(char *filename)
 {
 	char buf[256];
@@ -2486,9 +2408,8 @@ struct folder *folder_find_by_file(char *filename)
 	return f;
 }
 
-/******************************************************************
- Finds the folder of a mail.
-*******************************************************************/
+/*****************************************************************************/
+
 struct folder *folder_find_by_mail(struct mail_info *mail)
 {
 	struct folder_node *node = (struct folder_node*)list_first(&folder_list);
@@ -2512,9 +2433,8 @@ struct folder *folder_find_by_mail(struct mail_info *mail)
 	return NULL;
 }
 
-/******************************************************************
- Returns the mail at the given position
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_find_mail_by_position(struct folder *f, int position)
 {
 	void *handle = NULL;
@@ -2525,10 +2445,8 @@ struct mail_info *folder_find_mail_by_position(struct folder *f, int position)
 	return f->mail_info_array[position];
 }
 
-/******************************************************************
- Finds from a folder (which is given by its path) the mail's
- successor (which is given by the filename)
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_find_next_mail_info_by_filename(char *folder_path, char *mail_filename)
 {
 	void *handle = NULL;
@@ -2547,10 +2465,8 @@ struct mail_info *folder_find_next_mail_info_by_filename(char *folder_path, char
 	return NULL;
 }
 
-/******************************************************************
- Finds from a folder (which is given by its path) the mail's
- pred (which is given by the filename)
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_find_prev_mail_info_by_filename(char *folder_path, char *mail_filename)
 {
 	void *handle = NULL;
@@ -2572,10 +2488,8 @@ struct mail_info *folder_find_prev_mail_info_by_filename(char *folder_path, char
 	return NULL;
 }
 
-/******************************************************************
- Finds a mail which should be selected (depending on the folder
- type this could be a unread or a held mail)
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info *folder_find_best_mail_info_to_select(struct folder *folder)
 {
 	void *handle = NULL;
@@ -2597,10 +2511,8 @@ struct mail_info *folder_find_best_mail_info_to_select(struct folder *folder)
 	return m;
 }
 
-/******************************************************************
- Returns the index (starting with 0) of the mail in this folder.
- -1 if mail is not found.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_get_index_of_mail(struct folder *f, struct mail_info *mail)
 {
 	int index = 0;
@@ -2615,9 +2527,8 @@ int folder_get_index_of_mail(struct folder *f, struct mail_info *mail)
 	return -1;
 }
 
-/******************************************************************
- Returns the size of the mails in this folder
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_size_of_mails(struct folder *f)
 {
 	int size = 0;
@@ -2631,13 +2542,8 @@ int folder_size_of_mails(struct folder *f)
 	return size;
 }
 
-/******************************************************************
- Move num_mail mails from source folder to a destination folder.
- Returns the number of successfully moved mails.
+/*****************************************************************************/
 
- If mail has sent status and moved to a outgoing drawer it get's
- the waitsend status.
-*******************************************************************/
 int folder_move_mail_array(struct folder *from_folder, struct folder *dest_folder, struct mail_info **mail_info_array, int num_mails)
 {
 	char *buf, *src_buf, *src_path_end_buf, *dest_buf, *dest_path_end_buf;
@@ -2727,20 +2633,15 @@ int folder_move_mail_array(struct folder *from_folder, struct folder *dest_folde
 	return i;
 }
 
-/******************************************************************
- Move a mail from source folder to a destination folder. 0 if the
- moving has failed.
- If mail has sent status and moved to a outgoing drawer it get's
- the waitsend status.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_move_mail(struct folder *from_folder, struct folder *dest_folder, struct mail_info *mail)
 {
 	return folder_move_mail_array(from_folder,dest_folder,&mail,1);
 }
 
-/******************************************************************
- Deletes a mail permanently
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_delete_mail(struct folder *from_folder, struct mail_info *mail)
 {
 	char path[512];
@@ -2753,9 +2654,11 @@ int folder_delete_mail(struct folder *from_folder, struct mail_info *mail)
 	return 1;
 }
 
-/******************************************************************
- Really delete all mails in the given folder
-*******************************************************************/
+/**
+ * Really delete all mails in the given folder.
+ *
+ * @param folder defines the folder from which to delete all mails.
+ */
 static void folder_delete_mails(struct folder *folder)
 {
 	int i;
@@ -2808,9 +2711,8 @@ static void folder_delete_mails(struct folder *folder)
 	chdir(path);
 }
 
-/******************************************************************
- Really delete all mails in the delete folder
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_delete_deleted(void)
 {
 	struct folder *f = folder_deleted();
@@ -2820,10 +2722,14 @@ void folder_delete_deleted(void)
 	folder_unlock(f);
 }
 
-/******************************************************************
- Writes a string into a filehandle. Returns 0 for an error else
- the number of bytes which has been written (at least two).
-*******************************************************************/
+/**
+ * Writes a string into a filehandle. Returns 0 for an error else
+ * the number of bytes which has been written (at least two).
+ *
+ * @param fh
+ * @param str
+ * @return
+ */
 static int fwrite_str(FILE *fh, char *str)
 {
 	if (str)
@@ -2842,9 +2748,12 @@ static int fwrite_str(FILE *fh, char *str)
 	return 2;
 }
 
-/******************************************************************
- Reads a string from a filehandle. It is allocated with malloc()
-*******************************************************************/
+/**
+ * Reads a string from a filehandle. It is allocated with malloc().
+ *
+ * @param fh
+ * @return
+ */
 static char *fread_str(FILE *fh)
 {
 	unsigned char a;
@@ -2864,10 +2773,13 @@ static char *fread_str(FILE *fh)
 	return txt;
 }
 
-/******************************************************************
- Reads a string from a filehandle. It is allocated with malloc().
- Returns NULL if the string has an length of 0.
-*******************************************************************/
+/**
+ * Reads a string from a file handle. It is allocated with malloc().
+ * Returns NULL if the string has an length of 0.
+ *
+ * @param fh
+ * @return
+ */
 static char *fread_str_no_null(FILE *fh)
 {
 	unsigned char a;
@@ -2889,9 +2801,13 @@ static char *fread_str_no_null(FILE *fh)
 	return txt;
 }
 
-/******************************************************************
- Stores the header of the index file
-*******************************************************************/
+/**
+ * Stores the header of the index file.
+ *
+ * @param f the folder for which the index file shall be written.
+ * @param fh the file handle to write into.
+ * @return 0 on failure, 1 on success
+ */
 static int folder_save_index_header(struct folder *f, FILE *fh)
 {
 	int ver = FOLDER_INDEX_VERSION;
@@ -2905,10 +2821,8 @@ static int folder_save_index_header(struct folder *f, FILE *fh)
 	return 1;
 }
 
-/******************************************************************
- Save the index of an folder. If no mail infos are loaded or
- the index is uptodate nothing happens.
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_save_index(struct folder *f)
 {
 	FILE *fh;
@@ -3026,9 +2940,8 @@ int folder_save_index(struct folder *f)
 	return 1;
 }
 
-/******************************************************************
- Save all the index files
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_save_all_indexfiles(void)
 {
 	struct folder *f = folder_first();
@@ -3039,9 +2952,8 @@ void folder_save_all_indexfiles(void)
 	}
 }
 
-/******************************************************************
- Get informations about the folder stats
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_get_stats(int *total_msg_ptr, int *total_unread_ptr, int *total_new_ptr)
 {
 	struct folder *f = folder_first();
@@ -3093,18 +3005,8 @@ static void folder_sort_mails(struct folder *f)
 		SM_DEBUGF(10,("Sorted mails in %d ms\n",time_ms_passed(time_ref)));
 	}
 }
+/*****************************************************************************/
 
-/**
- * The mail iterating function. To get the first mail let handle
- * point to NULL. If needed this function sorts the mails according
- * to the sort mode. Handle will be updated every time.
- * While iterating through the mails you aren't allowed to (re)move a
- * mail within the folder.
- *
- * @param folder
- * @param handle
- * @return
- */
 struct mail_info *folder_next_mail_info(struct folder *folder, void **handle)
 {
 	struct mail_info **mail_info_array;
@@ -3168,12 +3070,8 @@ struct mail_info *folder_next_mail_info(struct folder *folder, void **handle)
 /* we define a macro for mail iterating, handle must be initialzed to NULL at start */
 /*#define folder_next_mail(folder,handle) ( ((*((int*)handle))<folder->num_mails)?(folder->mail_array[(*((int*)handle))++]):NULL)*/
 
-/******************************************************************
- This function is the same as above but it returns the complete
- array or NULL for an error. Check folder.num_mails for size of
- the array. NOTE: function can disappear in a future, so use
- it rarly. It's better to use folder_next_mail() instead
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info **folder_get_mail_info_array(struct folder *folder)
 {
 	void *handle = NULL;
@@ -3184,10 +3082,17 @@ struct mail_info **folder_get_mail_info_array(struct folder *folder)
 	return folder->mail_info_array;
 }
 
-/******************************************************************
- Helper function which returns 1 if a given mail has the given
- property. If property is unknown 0 is returned.
-*******************************************************************/
+/*****************************************************************************/
+
+/**
+ * Helper function which returns 1 if a given mail has the given
+ * property. If property is unknown 0 is returned.
+ *
+ * @param folder
+ * @param mail
+ * @param properties
+ * @return
+ */
 static int folder_mail_info_has_property(struct folder *folder, struct mail_info *mail, int properties)
 {
 	if (!properties) return 1;
@@ -3197,11 +3102,8 @@ static int folder_mail_info_has_property(struct folder *folder, struct mail_info
 	return 0;
 }
 
-/******************************************************************
- Returns a NULL terminated array of mail with the given properties
- or NULL. No properties means all mails. The array must be freed
- with free()
-*******************************************************************/
+/*****************************************************************************/
+
 struct mail_info **folder_query_mails(struct folder *folder, int properties)
 {
 	int i,num;
@@ -3248,17 +3150,15 @@ struct mail_info **folder_query_mails(struct folder *folder, int properties)
 	return array;
 }
 
-/******************************************************************
- Returns the primary sort mode
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_get_primary_sort(struct folder *folder)
 {
 	return folder->primary_sort;
 }
 
-/******************************************************************
- Sets the primary sort mode
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_set_primary_sort(struct folder *folder, int sort_mode)
 {
 	if (folder->primary_sort != sort_mode)
@@ -3274,17 +3174,15 @@ void folder_set_primary_sort(struct folder *folder, int sort_mode)
 	}
 }
 
-/******************************************************************
- Returns the secondary sort mode
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_get_secondary_sort(struct folder *folder)
 {
 	return folder->secondary_sort;
 }
 
-/******************************************************************
- Sets the secondary sort mode
-*******************************************************************/
+/*****************************************************************************/
+
 void folder_set_secondary_sort(struct folder *folder, int sort_mode)
 {
 	if (folder->secondary_sort != sort_mode)
@@ -3300,11 +3198,8 @@ void folder_set_secondary_sort(struct folder *folder, int sort_mode)
 	}
 }
 
+/*****************************************************************************/
 
-/******************************************************************
- Checks if the given filter matches the mail.
- folder is the folder where the mail is located and maybe NULL.
-*******************************************************************/
 int mail_matches_filter(struct folder *folder, struct mail_info *m,
 											  struct filter *filter)
 {
@@ -3475,10 +3370,8 @@ int mail_matches_filter(struct folder *folder, struct mail_info *m,
 	return 0;
 }
 
-/******************************************************************
- Checks if a mail should be filtered (returns the filter which
- actions should performed or NULL)
-*******************************************************************/
+/*****************************************************************************/
+
 struct filter *folder_mail_can_be_filtered(struct folder *folder, struct mail_info *m, int action)
 {
 	struct filter *filter = filter_list_first();
@@ -3499,9 +3392,8 @@ struct filter *folder_mail_can_be_filtered(struct folder *folder, struct mail_in
 	return 0;
 }
 
-/******************************************************************
- Filter all mails in the given folder using a single filter
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_apply_filter(struct folder *folder, struct filter *filter)
 {
 	void *handle = NULL;
@@ -3554,9 +3446,8 @@ int folder_apply_filter(struct folder *folder, struct filter *filter)
 	return 1;
 }
 
-/******************************************************************
- Filter all mails in the given folder
-*******************************************************************/
+/*****************************************************************************/
+
 int folder_filter(struct folder *folder)
 {
 	void *handle = NULL;
@@ -3603,221 +3494,6 @@ int folder_filter(struct folder *folder)
 	}
 	chdir(path);
 	return 1;
-}
-
-struct search_msg
-{
-	int f_array_len;
-	struct folder **f_array;
-	struct search_options *sopt;
-};
-
-/**************************************************************************
- The thread entry for the search
-**************************************************************************/
-static void folder_start_search_entry(struct search_msg *msg)
-{
-	struct folder **f_array = NULL;
-	int f_array_len;
-	struct filter *filter = NULL;
-	struct filter_rule *rule;
-	struct search_options *sopt;
-#define NUM_FOUND 100
-	struct mail_info *found_array[NUM_FOUND];
-
-	/* Used to reduce the amount of notifications sent to the parent task */
-	unsigned int secs = sm_get_current_seconds();
-
-	sopt = search_options_duplicate(msg->sopt);
-	f_array_len = msg->f_array_len;
-	if ((f_array = (struct folder**)malloc((f_array_len+1)*sizeof(struct folder*))))
-	{
-		int i;
-		for (i=0;i<f_array_len;i++)
-		{
-			f_array[i] = msg->f_array[i];
-			/* Prevent folder changes */
-			folder_lock(f_array[i]);
-		}
-		f_array[i] = NULL;
-	}
-
-	if (thread_parent_task_can_contiue())
-	{
-		if (!sopt || !f_array) goto fail;
-
-		filter = filter_create();
-		if (!filter) goto fail;
-
-		if (sopt->from)
-		{
-			if ((rule = filter_create_and_add_rule(filter,RULE_FROM_MATCH)))
-			{
-				rule->flags = SM_PATTERN_SUBSTR|SM_PATTERN_NOCASE;
-				rule->u.from.from = array_add_string(NULL,sopt->from);
-			}
-		}
-
-		if (sopt->subject)
-		{
-			if ((rule = filter_create_and_add_rule(filter,RULE_SUBJECT_MATCH)))
-			{
-				rule->flags = SM_PATTERN_SUBSTR|SM_PATTERN_NOCASE;
-				rule->u.subject.subject = array_add_string(NULL,sopt->subject);
-			}
-		}
-
-		if (sopt->body)
-		{
-			if ((rule = filter_create_and_add_rule(filter,RULE_BODY_MATCH)))
-			{
-				rule->flags = SM_PATTERN_SUBSTR|SM_PATTERN_NOCASE;
-				rule->u.body.body = mystrdup(sopt->body);
-			}
-		}
-
-		if (sopt->to)
-		{
-			if ((rule = filter_create_and_add_rule(filter,RULE_RCPT_MATCH)))
-			{
-				rule->flags = SM_PATTERN_SUBSTR|SM_PATTERN_NOCASE;
-				rule->u.rcpt.rcpt = array_add_string(NULL,sopt->to);
-			}
-		}
-
-		filter_parse_filter_rules(filter);
-		filter->search_filter = 1;
-
-		/* folder_apply_filter(f,filter); */ /* Not safe currently to be called from subthreads */
-		{
-			int folder_num = 0;
-			int found_num = 0;
-			struct mail_info *m;
-			struct folder *f;
-			char path[512];
-
-			getcwd(path, sizeof(path));
-
-			thread_call_parent_function_sync(NULL,search_enable_search, 0);
-
-			while ((f = f_array[folder_num++]))
-			{
-				int i;
-
-				if (chdir(f->path) == -1) break;
-
-				for (i=0;i<f->num_mails;i++)
-				{
-					if (!(m = f->mail_info_array[i]))
-						break;
-
-					/* mail_matches_filter() is thread safe as long as no header search is used, like here */
-					if (mail_matches_filter(f,m,filter))
-					{
-						unsigned int new_secs = sm_get_current_seconds();
-
-						found_array[found_num++] = m;
-
-						if (found_num == NUM_FOUND || new_secs != secs)
-						{
-							thread_call_parent_function_sync(NULL,search_add_result, 2, found_array, found_num);
-							found_num = 0;
-							secs = new_secs;
-						}
-					}
-
-					if (thread_aborted()) goto cancel;
-				}
-			}
-cancel:
-			chdir(path);
-
-			if (found_num)
-				thread_call_parent_function_sync(NULL,search_add_result, 2, found_array, found_num);
-
-			thread_call_parent_function_sync(NULL,search_disable_search, 0);
-		}
-	}
-
-fail:
-	if (filter) filter_dispose(filter);
-	if (f_array)
-	{
-		int i;
-		for (i=0;i<f_array_len;i++)
-			folder_unlock(f_array[i]);
-		free(f_array);
-	}
-	if (sopt) search_options_free(sopt);
-}
-
-/**
- * Start the search with the given options. It starts a separate thread for
- * doing so.
- *
- * @param sopt
- */
-void folder_start_search(struct search_options *sopt)
-{
-	struct search_msg msg;
-	struct folder *f;
-	struct folder *start;
-	struct folder *end;
-	struct folder **array;
-	int num;
-
-	if (sopt->folder)
-	{
-		start = folder_find_by_name(sopt->folder);
-		if (start->special != FOLDER_SPECIAL_GROUP) end = folder_next(start);
-		else
-		{
-			struct folder *parent;
-			parent = start->parent_folder;
-			f = folder_next(start);
-			while (f && f->parent_folder != parent)
-				f = folder_next(f);
-			end = f;
-		}
-	} else
-	{
-		start = folder_first();
-		end = NULL;
-	}
-
-	num = 0;
-	f = start;
-	while (f && f != end)
-	{
-		if (f->special != FOLDER_SPECIAL_GROUP) num++;
-		f = folder_next(f);
-	}
-
-	if ((array = (struct folder**)malloc((num+1)*sizeof(struct folder*))))
-	{
-		int i = 0;
-
-		f = start;
-
-		while (f && f != end)
-		{
-			if (f->special != FOLDER_SPECIAL_GROUP)
-			{
-				void *handle = NULL;
-			  folder_next_mail_info(f,&handle);
-				array[i++]  = f;
-			}
-			f = folder_next(f);
-		}
-		array[i] = NULL;
-
-		msg.sopt = sopt;
-		msg.f_array = array;
-		msg.f_array_len = num;
-
-		thread_start(THREAD_FUNCTION(&folder_start_search_entry),&msg);
-		free(array);
-	}
 }
 
 /**
@@ -3937,9 +3613,8 @@ static int folder_load_order_traverse_orders_callback(struct folder_order *order
 	return 1;
 }
 
-/**
- * @brief Loads the order of the folders
- */
+/*****************************************************************************/
+
 void folder_load_order(void)
 {
 	struct list new_order_list;
@@ -3953,9 +3628,8 @@ void folder_load_order(void)
 		list_insert(&folder_list, &folder_node->node, NULL);
 }
 
-/**
- * @brief Saves the order of the folders.
- */
+/*****************************************************************************/
+
 void folder_save_order(void)
 {
 	struct folder *f = folder_first();
@@ -3977,14 +3651,9 @@ void folder_save_order(void)
 	fclose(fh);
 }
 
-/**
- * @brief Returns a possible path for new folders.
- *
- * @note a static buffer is used which means that you must not free the result.
- *  Additionally, this function is not thread-safe.
- * @return
- */
-char *new_folder_path(void)
+/*****************************************************************************/
+
+char *folder_get_possible_path(void)
 {
 	static char buf[512];
 	char *buf2;
@@ -4011,11 +3680,8 @@ char *new_folder_path(void)
 	return buf;
 }
 
-/**
- * @brief Create necessary IMAP folders according to the current account configuration.
- *
- * Folders that exist are not created again.
- */
+/*****************************************************************************/
+
 void folder_create_imap(void)
 {
 	struct account *ac = (struct account*)list_first(&user.config.account_list);
@@ -4117,14 +3783,8 @@ void folder_create_imap(void)
 	}
 }
 
-/**
- * @brief Checks whether two folders are on the same imap server.
- * Returns 1 if this is the case else 0.
- *
- * @param f1
- * @param f2
- * @return
- */
+/*****************************************************************************/
+
 int folder_on_same_imap_server(struct folder *f1, struct folder *f2)
 {
 	if (!f1->is_imap || !f2->is_imap) return 0;
@@ -4214,11 +3874,8 @@ static void folder_fix(void)
 	free(st);
 }
 
-/**
- * @brief Initializes the folder subsystem.
- *
- * @return 0 on failure, otherwise 1.
- */
+/*****************************************************************************/
+
 int init_folders(void)
 {
 	DIR *dfd;
@@ -4331,9 +3988,8 @@ int init_folders(void)
 	return 1;
 }
 
-/**
- * Cleanups the folder.
- */
+/*****************************************************************************/
+
 void del_folders(void)
 {
 	struct folder_node *node;
@@ -4345,11 +4001,8 @@ void del_folders(void)
 		folder_node_dispose(node);
 }
 
-/**
- * Lock the folder, to prevent any change to it.
- *
- * @param f
- */
+/*****************************************************************************/
+
 void folder_lock(struct folder *f)
 {
 	if (!f) return;
@@ -4357,12 +4010,8 @@ void folder_lock(struct folder *f)
 	if (f->ref_folder) folder_lock(f->ref_folder);
 }
 
-/**
- * Tries to lock the folder. Returns FALSE if folder is used.
- *
- * @param f
- * @return
- */
+/*****************************************************************************/
+
 int folder_attempt_lock(struct folder *f)
 {
 	int attempt;
@@ -4378,11 +4027,8 @@ int folder_attempt_lock(struct folder *f)
 	return attempt;
 }
 
-/**
- * Unlock the folder.
- *
- * @param f
- */
+/*****************************************************************************/
+
 void folder_unlock(struct folder *f)
 {
 	if (!f) return;
@@ -4390,17 +4036,15 @@ void folder_unlock(struct folder *f)
 	thread_unlock_semaphore(f->sem);
 }
 
-/**
- * Lock the global folder semaphore
- */
+/*****************************************************************************/
+
 void folders_lock(void)
 {
 	thread_lock_semaphore(folders_semaphore);
 }
 
-/**
- * Unlock the global folder semaphore.
- */
+/*****************************************************************************/
+
 void folders_unlock(void)
 {
 	thread_unlock_semaphore(folders_semaphore);

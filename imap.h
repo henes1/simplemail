@@ -28,6 +28,10 @@
 #include "lists.h"
 #endif
 
+#ifndef SM__STRING_LISTS_H
+#include "string_lists.h"
+#endif
+
 #ifndef SM__TCP_H
 #include "tcp.h"
 #endif
@@ -50,7 +54,10 @@ struct imap_server
 	int starttls;
 	int ask;
 
-	char *title; /* normaly NULL, will hold a copy of account->account_name while fetching mails */
+	/** Keep mails that are in a local folder but not on a remote one */
+	int keep_orphans;
+
+	char *title; /* normally NULL, will hold a copy of account->account_name while fetching mails */
 };
 
 
@@ -85,6 +92,7 @@ struct imap_download_mails_callbacks
 	void (*new_uids)(unsigned int uid_validity, unsigned int uid_next, char *user, char *server, char *path);
 	void (*set_status)(const char *str);
 	void (*set_status_static)(const char *str);
+	void (*delete_mail_by_uid)(char *user, char *server, char *path, unsigned int uid);
 };
 
 struct imap_download_mails_options
@@ -113,6 +121,8 @@ struct imap_connect_to_server_callbacks
 {
 	void (*set_status)(const char *str);
 	int (*request_login)(char *text, char *login, char *password, int len);
+	void (*add_imap_folder)(char *user, char *server, char *path);
+	void (*refresh_folders)(void);
 };
 
 struct imap_connect_to_server_options
@@ -193,6 +203,7 @@ struct imap_synchronize_callbacks
 	void (*init_gauge_as_bytes)(int maximal);
 	void (*set_gauge)(int value);
 	void (*new_mail_arrived)(char *filename, char *user, char *server, char *path);
+	void (*delete_mail_by_uid)(char *user, char *server, char *path, unsigned int uid);
 };
 
 struct imap_synchronize_options

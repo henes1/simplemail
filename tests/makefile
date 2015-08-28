@@ -34,6 +34,7 @@ TESTEXES=\
 	boyermoore_unittest \
 	codesets_unittest \
 	configuration_unittest \
+	coroutines_unittest \
 	filter_unittest \
 	folder_unittest \
 	index_unittest \
@@ -50,10 +51,7 @@ NOMEMLEAKSPERDEFAULT=\
 
 test-objs/%.o: ../%.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 # General rule to compile the unit tests
 %_unittest: %_unittest.c lib$(SIMPLEMAIL_LIB).a
@@ -144,7 +142,7 @@ imap-testsuite: dovecot-conf imap2_unittest
 	./imap2_unittest
 	$(DOVECOT) stop
 
-# Non-empty, if a unit tests requires started dove cot
+# Non-empty, if a unit tests requires started dovecot
 #
 # $(1): The name of the unit test
 define dovecot-needed
@@ -210,3 +208,6 @@ endef
 $(foreach testexe,$(TESTEXES), \
  $(eval $(call helgrind.tmpl,$(testexe))) \
 )
+
+# Now include dependencies, but don't fail if they are not available
+-include $(OBJS:.o=.d)

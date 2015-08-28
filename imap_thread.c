@@ -79,6 +79,21 @@ static int imap_request_login(char *text, char *login, char *password, int len)
 	return thread_call_parent_function_sync(NULL,sm_request_login,4,text,login,password,len);
 }
 
+static void imap_delete_mail_by_uid(char *user, char *server, char *path, unsigned int uid)
+{
+	thread_call_parent_function_sync(NULL, callback_delete_mail_by_uid, 4, user, server, path, uid);
+}
+
+static void imap_add_imap_folder(char *user, char *server, char *path)
+{
+	thread_call_parent_function_sync(NULL, callback_add_imap_folder, 3, user, server, path);
+}
+
+static void imap_refresh_folders(void)
+{
+	thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
+}
+
 /*****************************************************************************/
 
 /**
@@ -360,6 +375,8 @@ static int imap_thread_connect_to_server(struct imap_server *server, char *folde
 		options.imap_folder = imap_folder;
 		options.callbacks.set_status = imap_set_status;
 		options.callbacks.request_login = imap_request_login;
+		options.callbacks.add_imap_folder = imap_add_imap_folder;
+		options.callbacks.refresh_folders = imap_refresh_folders;
 		options.download_callbacks.new_uids = imap_new_uids;
 		options.download_callbacks.new_mails_arrived = imap_new_mails_arrived;
 		options.download_callbacks.set_status = imap_set_status;
@@ -386,6 +403,7 @@ static int imap_thread_connect_to_server(struct imap_server *server, char *folde
 		download_options.callbacks.new_uids = imap_new_uids;
 		download_options.callbacks.set_status = imap_set_status;
 		download_options.callbacks.set_status_static = imap_set_status_static;
+		download_options.callbacks.delete_mail_by_uid = imap_delete_mail_by_uid;
 
 		imap_really_download_mails(imap_connection, &download_options);
 		rc = 1;

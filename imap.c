@@ -40,9 +40,7 @@
 #include "mail.h"
 #include "progmon.h"
 #include "qsort.h"
-#include "simplemail.h"
 #include "smintl.h"
-#include "status.h"
 #include "support_indep.h"
 #include "tcp.h"
 
@@ -145,19 +143,37 @@ static int get_local_mail_array(struct folder *folder, struct local_mail **local
 	return success;
 }
 
+struct imap_delete_orphan_messages_args
+{
+	struct local_mail *local_mail_array;
+	int num_of_local_mails;
+
+	struct remote_mail *remote_mail_array;
+	int num_remote_mails;
+
+	struct imap_server *imap_server;
+	char *imap_folder;
+
+	/** Callback that is invoked for each local uid that is not present in the remote mailbox */
+	void (*delete_mail_by_uid)(char *user, char *server, char *path, unsigned int uid);
+};
+
 /**
  * Delete local mails that are not listed in the remote mail array (aka orphaned messages).
  *
- * @param local_mail_array
- * @param num_of_local_mails length of local_mail_array
- * @param remote_mail_array
- * @param num_remote_mails length of remote_mail_array
- * @param imap_server
- * @param imap_folder
+ * @param options
  */
-static void imap_delete_orphan_messages(struct local_mail *local_mail_array, int num_of_local_mails, struct remote_mail *remote_mail_array, int num_remote_mails, struct imap_server *imap_server, char *imap_folder)
+static void imap_delete_orphan_messages(struct imap_delete_orphan_messages_args *options)
 {
 	int i,j;
+
+	struct local_mail *local_mail_array = options->local_mail_array;
+	int num_of_local_mails = options->num_of_local_mails;
+
+	struct remote_mail *remote_mail_array = options->remote_mail_array;
+	int num_remote_mails = options->num_remote_mails;
+	struct imap_server *imap_server = options->imap_server;
+	char *imap_folder = options->imap_folder;
 
 	SM_ENTER;
 	SM_DEBUGF(20,("num_of_local_mails=%d, num_remote_mails=%d\n", num_of_local_mails, num_remote_mails));
@@ -170,7 +186,7 @@ static void imap_delete_orphan_messages(struct local_mail *local_mail_array, int
 
 		if (local_uid < remote_uid)
 		{
-			if (local_uid) thread_call_parent_function_sync(NULL,callback_delete_mail_by_uid,4,imap_server->login,imap_server->name,imap_folder,local_uid);
+			if (local_uid) options->delete_mail_by_uid(imap_server->login,imap_server->name,imap_folder,local_uid);
 			i++;
 		}
 		else if (local_uid > remote_uid) j++;
@@ -185,7 +201,7 @@ static void imap_delete_orphan_messages(struct local_mail *local_mail_array, int
 	for (;i<num_of_local_mails;i++)
 	{
 		unsigned int local_uid = local_mail_array[i].uid;
-		if (local_uid) thread_call_parent_function_sync(NULL,callback_delete_mail_by_uid,4,imap_server->login,imap_server->name,imap_folder,local_uid);
+		if (local_uid) options->delete_mail_by_uid(imap_server->login,imap_server->name,imap_folder,local_uid);
 	}
 
 	SM_LEAVE;
@@ -1013,7 +1029,20 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 				remote_mail_array = rm->remote_mail_array;
 				num_of_remote_mails = rm->num_of_remote_mail;
 
-				imap_delete_orphan_messages(local_mail_array,num_of_local_mails,remote_mail_array,num_of_remote_mails, server, imap_path);
+				if (!server->keep_orphans)
+				{
+					struct imap_delete_orphan_messages_args args = {0};
+
+					args.local_mail_array = local_mail_array;
+					args.num_of_local_mails = num_of_local_mails;
+					args.remote_mail_array = remote_mail_array;
+					args.num_remote_mails = num_of_remote_mails;
+					args.imap_server = server;
+					args.imap_folder = imap_path;
+					args.delete_mail_by_uid = callbacks->delete_mail_by_uid;
+
+					imap_delete_orphan_messages(&args);
+				}
 
 				/* Determine the number of bytes and mails which we are going to download
 				 * Note that the contents of remote mail is partly destroyed. When we are
@@ -1814,13 +1843,30 @@ int imap_really_download_mails(struct connection *imap_connection, struct imap_d
 
 						imap_free_remote_mailbox(rm);
 						/* Rescan folder in order to delete orphaned messages */
-						rm = imap_get_remote_mails(&args);
+						if (!imap_server->keep_orphans)
+							rm = imap_get_remote_mails(&args);
+						else
+							rm = NULL;
 					}
 
 					if (rm)
 					{
-						/* Now delete orphaned messages */
-						imap_delete_orphan_messages(local_mail_array,num_of_local_mails,rm->remote_mail_array,rm->num_of_remote_mail, imap_server, imap_folder);
+						if (!imap_server->keep_orphans)
+						{
+							/* Now delete orphaned messages */
+
+							struct imap_delete_orphan_messages_args args = {0};
+
+							args.local_mail_array = local_mail_array;
+							args.num_of_local_mails = num_of_local_mails;
+							args.remote_mail_array = rm->remote_mail_array;
+							args.num_remote_mails = rm->num_of_remote_mail;
+							args.imap_server = imap_server;
+							args.imap_folder = imap_folder;
+							args.delete_mail_by_uid = callbacks->delete_mail_by_uid;
+
+							imap_delete_orphan_messages(&args);
+						}
 						imap_free_remote_mailbox(rm);
 					}
 				}
@@ -1903,10 +1949,10 @@ void imap_really_connect_to_server(struct connection **imap_connection, struct i
 	node = string_list_first(folder_list);
 	while (node)
 	{
-		thread_call_parent_function_sync(NULL,callback_add_imap_folder,3,options->imap_server->login,options->imap_server->name,node->string);
+		callbacks->add_imap_folder(options->imap_server->login,options->imap_server->name,node->string);
 		node = (struct string_node*)node_next(&node->node);
 	}
-	thread_call_parent_function_sync(NULL,callback_refresh_folders,0);
+	callbacks->refresh_folders();
 
 	string_list_free(folder_list);
 	folder_list = NULL;
