@@ -67,6 +67,9 @@ struct coroutine_basic_context
 
 	/** Another coroutine we are waiting for */
 	coroutine_t other;
+
+	/** Function that checks if a switch from wait to ready is possible */
+	int (*is_now_ready)(coroutine_scheduler_t scheduler, coroutine_t cor);
 };
 
 #define COROUTINE_BEGIN(context) \
@@ -91,7 +94,9 @@ struct coroutine_basic_context
 			coroutine_await_socket(&context->basic_context, sfd, write);\
 			return COROUTINE_WAIT;\
 		case __LINE__:\
-			context->basic_context.socket_fd = -1;
+			context->basic_context.socket_fd = -1; \
+			context->basic_context.unblock = NULL;
+
 
 /**
  * Insert a preemption point but don't continue until the given coroutine
@@ -114,6 +119,20 @@ struct coroutine_basic_context
  * @return the scheduler nor NULL for an error.
  */
 coroutine_scheduler_t coroutine_scheduler_new(void);
+
+/**
+ * Create a new scheduler for coroutines with a custom wait for event callback.
+ *
+ * @return the scheduler nor NULL for an error.
+ */
+coroutine_scheduler_t coroutine_scheduler_new_custom(void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata);
+
+/**
+ * Execute the current set of ready coroutines.
+ *
+ * @param scheduler
+ */
+void coroutine_schedule_ready(coroutine_scheduler_t scheduler);
 
 /**
  * Dispose the given scheduler. Does not check if there are any coroutines
@@ -141,6 +160,16 @@ void coroutine_await_socket(struct coroutine_basic_context *context, int socket_
  * @return the coroutine just added or NULL for an error.
  */
 coroutine_t coroutine_add(coroutine_scheduler_t scheduler, coroutine_entry_t entry, struct coroutine_basic_context *context);
+
+
+/**
+ * Checks whether the given blocked coroutine becomes now active due to some fd conditions.
+ *
+ * @param scheduler
+ * @param cor
+ * @return 1 if cor should become active, 0 if it should stay blocked.
+ */
+int coroutine_is_fd_now_ready(coroutine_scheduler_t scheduler, coroutine_t cor);
 
 /**
  * Schedule all coroutines.

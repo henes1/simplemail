@@ -65,8 +65,8 @@ struct coroutines_list
  */
 struct coroutine_scheduler
 {
-	/** Contains all active coroutines. Elements are of type coroutine_t */
-	struct coroutines_list coroutines_list;
+	/** Contains all ready coroutines. Elements are of type coroutine_t */
+	struct coroutines_list coroutines_ready_list;
 
 	/** Contains all waiting coroutines. Elements are of type coroutine_t */
 	struct coroutines_list waiting_coroutines_list;
@@ -74,8 +74,20 @@ struct coroutine_scheduler
 	/** Contains all finished coroutines. Elements are of type coroutine_t */
 	struct coroutines_list finished_coroutines_list;
 
+	/** Function that is invoked to wait or poll for a next event */
+	void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata);
+
+	/** User data passed to wait_for_event() */
+	void *wait_for_event_udata;
+
+	/** Highest number of descriptors to wait for */
 	int nfds;
-	fd_set readfds, writefds;
+
+	/** Set of read fds to wait for */
+	fd_set readfds;
+
+	/** Set of write fds to wait for */
+	fd_set writefds;
 };
 
 /*****************************************************************************/
@@ -112,19 +124,43 @@ static coroutine_t coroutines_next(coroutine_t c)
 	return (coroutine_t)node_next(&c->node);
 }
 
+/**
+ * Standard wait for event function using select().
+ *
+ * @param poll
+ * @param udata
+ */
+static void coroutine_wait_for_fd_event(coroutine_scheduler_t sched, int poll, void *udata)
+{
+	struct timeval zero_timeout = {0};
+
+	select(sched->nfds+1, &sched->readfds, &sched->writefds, NULL, poll?&zero_timeout:NULL);
+}
+
 /*****************************************************************************/
 
-coroutine_scheduler_t coroutine_scheduler_new(void)
+coroutine_scheduler_t coroutine_scheduler_new_custom(void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata)
 {
 	coroutine_scheduler_t scheduler;
 
 	if (!(scheduler = (coroutine_scheduler_t)malloc(sizeof(*scheduler))))
 		return NULL;
 
-	coroutines_list_init(&scheduler->coroutines_list);
+	coroutines_list_init(&scheduler->coroutines_ready_list);
 	coroutines_list_init(&scheduler->waiting_coroutines_list);
 	coroutines_list_init(&scheduler->finished_coroutines_list);
+
+	scheduler->wait_for_event = wait_for_event;
+	scheduler->wait_for_event_udata = udata;
+
 	return scheduler;
+}
+
+/*****************************************************************************/
+
+coroutine_scheduler_t coroutine_scheduler_new(void)
+{
+	return coroutine_scheduler_new_custom(coroutine_wait_for_fd_event, NULL);
 }
 
 /*****************************************************************************/
@@ -140,6 +176,7 @@ void coroutine_await_socket(struct coroutine_basic_context *context, int socket_
 {
 	context->socket_fd = socket_fd;
 	context->write_mode = write;
+	context->is_now_ready = coroutine_is_fd_now_ready;
 }
 
 /*****************************************************************************/
@@ -152,7 +189,7 @@ coroutine_t coroutine_add(coroutine_scheduler_t scheduler, coroutine_entry_t ent
 		return NULL;
 	coroutine->entry = entry;
 	coroutine->context = context;
-	list_insert_tail(&scheduler->coroutines_list.list, &coroutine->node);
+	list_insert_tail(&scheduler->coroutines_ready_list.list, &coroutine->node);
 	return coroutine;
 }
 
@@ -194,14 +231,11 @@ static void coroutine_schedule_prepare_fds(coroutine_scheduler_t scheduler)
 	}
 }
 
-/**
- * Execute all active coroutines.
- *
- * @param scheduler
- */
-static void coroutine_schedule_active(coroutine_scheduler_t scheduler)
+/*****************************************************************************/
+
+void coroutine_schedule_ready(coroutine_scheduler_t scheduler)
 {
-	coroutine_t cor = coroutines_list_first(&scheduler->coroutines_list);
+	coroutine_t cor = coroutines_list_first(&scheduler->coroutines_ready_list);
 	coroutine_t cor_next;
 
 	/* Execute all non-waiting coroutines */
@@ -231,32 +265,42 @@ static void coroutine_schedule_active(coroutine_scheduler_t scheduler)
 }
 
 /**
- * Returns whether there are any living coroutines, i.e, either waiting or
- * active ones.
+ * Returns whether there are any unfinished coroutines.
  *
  * @param scheduler
  * @return
  */
-static int coroutine_has_living_coroutines(coroutine_scheduler_t scheduler)
+static int coroutine_has_unfinished_coroutines(coroutine_scheduler_t scheduler)
 {
-	return coroutines_list_first(&scheduler->coroutines_list)
+	return coroutines_list_first(&scheduler->coroutines_ready_list)
 			|| coroutines_list_first(&scheduler->waiting_coroutines_list);
+}
+
+/*****************************************************************************/
+
+int coroutine_is_fd_now_ready(coroutine_scheduler_t scheduler, coroutine_t cor)
+{
+	if (cor->context->write_mode)
+	{
+		if (FD_ISSET(cor->context->socket_fd, &scheduler->writefds))
+			return 1;
+	} else
+	{
+		if (FD_ISSET(cor->context->socket_fd, &scheduler->readfds))
+			return 1;
+	}
+	return 0;
 }
 
 /*****************************************************************************/
 
 void coroutine_schedule(coroutine_scheduler_t scheduler)
 {
-	struct timeval zero_timeout = {0};
-
-	fd_set *readfds = &scheduler->readfds;
-	fd_set *writefds = &scheduler->writefds;
-
-	while (coroutine_has_living_coroutines(scheduler))
+	while (coroutine_has_unfinished_coroutines(scheduler))
 	{
 		coroutine_t cor, cor_next;
 
-		coroutine_schedule_active(scheduler);
+		coroutine_schedule_ready(scheduler);
 
 		coroutine_schedule_prepare_fds(scheduler);
 
@@ -275,9 +319,9 @@ void coroutine_schedule(coroutine_scheduler_t scheduler)
 			{
 				if ((f = cor->context->other))
 				{
-					/* Move from waiting to active queue */
+					/* Move from waiting to ready queue */
 					node_remove(&cor->node);
-					list_insert_tail(&scheduler->coroutines_list.list, &cor->node);
+					list_insert_tail(&scheduler->coroutines_ready_list.list, &cor->node);
 					break;
 				}
 				f = coroutines_next(f);
@@ -286,21 +330,23 @@ void coroutine_schedule(coroutine_scheduler_t scheduler)
 
 		if (scheduler->nfds >= 0)
 		{
-			int polling = !!list_first(&scheduler->coroutines_list.list);
-			select(scheduler->nfds+1, readfds, writefds, NULL, polling?&zero_timeout:NULL);
+			int polling = !!list_first(&scheduler->coroutines_ready_list.list);
+
+			scheduler->wait_for_event(scheduler, polling, scheduler->wait_for_event_udata);
 
 			cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
 			for (;cor;cor = cor_next)
 			{
 				cor_next =  coroutines_next(cor);
-				if (cor->context->socket_fd < 0)
+
+				if (!cor->context->is_now_ready)
 					continue;
 
-				if (FD_ISSET(cor->context->socket_fd, readfds))
-				{
-					node_remove(&cor->node);
-					list_insert_tail(&scheduler->coroutines_list.list, &cor->node);
-				}
+				if (!cor->context->is_now_ready(scheduler, cor))
+					continue;
+
+				node_remove(&cor->node);
+				list_insert_tail(&scheduler->coroutines_ready_list.list, &cor->node);
 			}
 		}
 	}
@@ -404,23 +450,26 @@ static coroutine_return_t coroutines_test(struct coroutine_basic_context *arg)
 
 int main(int argc, char **argv)
 {
+	coroutine_scheduler_t sched;
 	coroutine_t example;
-
-	struct coroutine_scheduler scheduler = {0};
 
 	struct example_context example_context = {0};
 
-	coroutines_list_init(&scheduler.coroutines_list);
-	coroutines_list_init(&scheduler.waiting_coroutines_list);
+	if (!(sched = coroutine_scheduler_new()))
+	{
+		fprintf(stderr, "Couldn't allocate scheduler!\n");
+		return 1;
+	}
+
 
 	example_context.basic_context.socket_fd = -1;
 	/* TODO: It is not required to set the scheduler as this is part of coroutine_add() */
-	example_context.basic_context.scheduler = &scheduler;
+	example_context.basic_context.scheduler = sched;
 
-	example = coroutine_add(&scheduler, coroutines_test, &example_context.basic_context);
+	example = coroutine_add(sched, coroutines_test, &example_context.basic_context);
 	assert(example != 0);
 
-	coroutine_schedule(&scheduler);
+	coroutine_schedule(sched);
 
 	if (example_context.fd > 0)
 		close(example_context.fd);
