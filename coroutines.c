@@ -74,12 +74,19 @@ struct coroutine_scheduler
 	/** Contains all finished coroutines. Elements are of type coroutine_t */
 	struct coroutines_list finished_coroutines_list;
 
-	/** Function that is invoked to wait or poll for a next event */
-	void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata);
+	/**
+	 * Function that is invoked to wait or poll for a next event
+	 *
+	 * @return if there were events that potentially were blocked
+	 */
+	int (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata);
 
 	/** User data passed to wait_for_event() */
 	void *wait_for_event_udata;
+};
 
+struct coroutine_scheduler_fd_data
+{
 	/** Highest number of descriptors to wait for */
 	int nfds;
 
@@ -124,22 +131,69 @@ static coroutine_t coroutines_next(coroutine_t c)
 	return (coroutine_t)node_next(&c->node);
 }
 
+/*****************************************************************************/
+
+/**
+ * Prepare the set of fds for the given scheduler.
+ *
+ * @param scheduler
+ */
+static void coroutine_schedule_prepare_fds(coroutine_scheduler_t scheduler, struct coroutine_scheduler_fd_data *data)
+{
+	coroutine_t cor, cor_next;
+
+	fd_set *readfds = &data->readfds;
+	fd_set *writefds = &data->writefds;
+
+	FD_ZERO(readfds);
+	FD_ZERO(writefds);
+	data->nfds = -1;
+
+	cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
+	for (;cor;cor = cor_next)
+	{
+		cor_next =  coroutines_next(cor);
+
+		if (cor->context->socket_fd >= 0)
+		{
+			data->nfds = MAX(cor->context->socket_fd, data->nfds);
+
+			if (cor->context->write_mode)
+			{
+				FD_SET(cor->context->socket_fd, writefds);
+			} else
+			{
+				FD_SET(cor->context->socket_fd, readfds);
+			}
+		}
+	}
+}
+
 /**
  * Standard wait for event function using select().
  *
  * @param poll
  * @param udata
  */
-static void coroutine_wait_for_fd_event(coroutine_scheduler_t sched, int poll, void *udata)
+static int coroutine_wait_for_fd_event(coroutine_scheduler_t sched, int poll, void *udata)
 {
+	struct coroutine_scheduler_fd_data *data = (struct coroutine_scheduler_fd_data *)udata;
+
 	struct timeval zero_timeout = {0};
 
-	select(sched->nfds+1, &sched->readfds, &sched->writefds, NULL, poll?&zero_timeout:NULL);
+	coroutine_schedule_prepare_fds(sched, data);
+
+	if (data->nfds >= 0)
+	{
+		select(data->nfds+1, &data->readfds, &data->writefds, NULL, poll?&zero_timeout:NULL);
+		return 1;
+	}
+	return 0;
 }
 
 /*****************************************************************************/
 
-coroutine_scheduler_t coroutine_scheduler_new_custom(void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata)
+coroutine_scheduler_t coroutine_scheduler_new_custom(int (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata)
 {
 	coroutine_scheduler_t scheduler;
 
@@ -160,7 +214,18 @@ coroutine_scheduler_t coroutine_scheduler_new_custom(void (*wait_for_event)(coro
 
 coroutine_scheduler_t coroutine_scheduler_new(void)
 {
-	return coroutine_scheduler_new_custom(coroutine_wait_for_fd_event, NULL);
+	struct coroutine_scheduler_fd_data *data;
+	coroutine_scheduler_t sched;
+
+	if (!(data = malloc(sizeof(*data))))
+		return NULL;
+
+	if (!(sched = coroutine_scheduler_new_custom(coroutine_wait_for_fd_event, data)))
+	{
+		free(data);
+		return NULL;
+	}
+	return sched;
 }
 
 /*****************************************************************************/
@@ -191,44 +256,6 @@ coroutine_t coroutine_add(coroutine_scheduler_t scheduler, coroutine_entry_t ent
 	coroutine->context = context;
 	list_insert_tail(&scheduler->coroutines_ready_list.list, &coroutine->node);
 	return coroutine;
-}
-
-/*****************************************************************************/
-
-/**
- * Prepare the set of fds for the given scheduler.
- *
- * @param scheduler
- */
-static void coroutine_schedule_prepare_fds(coroutine_scheduler_t scheduler)
-{
-	coroutine_t cor, cor_next;
-
-	fd_set *readfds = &scheduler->readfds;
-	fd_set *writefds = &scheduler->writefds;
-
-	FD_ZERO(readfds);
-	FD_ZERO(writefds);
-	scheduler->nfds = -1;
-
-	cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
-	for (;cor;cor = cor_next)
-	{
-		cor_next =  coroutines_next(cor);
-
-		if (cor->context->socket_fd >= 0)
-		{
-			scheduler->nfds = MAX(cor->context->socket_fd, scheduler->nfds);
-
-			if (cor->context->write_mode)
-			{
-				FD_SET(cor->context->socket_fd, writefds);
-			} else
-			{
-				FD_SET(cor->context->socket_fd, readfds);
-			}
-		}
-	}
 }
 
 /*****************************************************************************/
@@ -280,13 +307,15 @@ static int coroutine_has_unfinished_coroutines(coroutine_scheduler_t scheduler)
 
 int coroutine_is_fd_now_ready(coroutine_scheduler_t scheduler, coroutine_t cor)
 {
+	struct coroutine_scheduler_fd_data *data = (struct coroutine_scheduler_fd_data *)scheduler->wait_for_event_udata;
+
 	if (cor->context->write_mode)
 	{
-		if (FD_ISSET(cor->context->socket_fd, &scheduler->writefds))
+		if (FD_ISSET(cor->context->socket_fd, &data->writefds))
 			return 1;
 	} else
 	{
-		if (FD_ISSET(cor->context->socket_fd, &scheduler->readfds))
+		if (FD_ISSET(cor->context->socket_fd, &data->readfds))
 			return 1;
 	}
 	return 0;
@@ -298,11 +327,11 @@ void coroutine_schedule(coroutine_scheduler_t scheduler)
 {
 	while (coroutine_has_unfinished_coroutines(scheduler))
 	{
+		int polling;
+
 		coroutine_t cor, cor_next;
 
 		coroutine_schedule_ready(scheduler);
-
-		coroutine_schedule_prepare_fds(scheduler);
 
 		cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
 		for (;cor;cor = cor_next)
@@ -328,26 +357,23 @@ void coroutine_schedule(coroutine_scheduler_t scheduler)
 			}
 		}
 
-		if (scheduler->nfds >= 0)
+		polling = !!list_first(&scheduler->coroutines_ready_list.list);
+
+		scheduler->wait_for_event(scheduler, polling, scheduler->wait_for_event_udata);
+
+		cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
+		for (;cor;cor = cor_next)
 		{
-			int polling = !!list_first(&scheduler->coroutines_ready_list.list);
+			cor_next =  coroutines_next(cor);
 
-			scheduler->wait_for_event(scheduler, polling, scheduler->wait_for_event_udata);
+			if (!cor->context->is_now_ready)
+				continue;
 
-			cor = coroutines_list_first(&scheduler->waiting_coroutines_list);
-			for (;cor;cor = cor_next)
-			{
-				cor_next =  coroutines_next(cor);
+			if (!cor->context->is_now_ready(scheduler, cor))
+				continue;
 
-				if (!cor->context->is_now_ready)
-					continue;
-
-				if (!cor->context->is_now_ready(scheduler, cor))
-					continue;
-
-				node_remove(&cor->node);
-				list_insert_tail(&scheduler->coroutines_ready_list.list, &cor->node);
-			}
+			node_remove(&cor->node);
+			list_insert_tail(&scheduler->coroutines_ready_list.list, &cor->node);
 		}
 	}
 

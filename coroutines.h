@@ -95,7 +95,7 @@ struct coroutine_basic_context
 			return COROUTINE_WAIT;\
 		case __LINE__:\
 			context->basic_context.socket_fd = -1; \
-			context->basic_context.unblock = NULL;
+			context->basic_context.is_now_ready = NULL;
 
 
 /**
@@ -125,7 +125,7 @@ coroutine_scheduler_t coroutine_scheduler_new(void);
  *
  * @return the scheduler nor NULL for an error.
  */
-coroutine_scheduler_t coroutine_scheduler_new_custom(void (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata);
+coroutine_scheduler_t coroutine_scheduler_new_custom(int (*wait_for_event)(coroutine_scheduler_t sched, int poll, void *udata), void *udata);
 
 /**
  * Execute the current set of ready coroutines.
