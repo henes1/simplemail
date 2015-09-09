@@ -86,19 +86,6 @@ struct coroutine_basic_context
 		case __LINE__:\
 
 /**
- * Insert a preemption point but don't continue until the given socket is ready
- * to be read or written.
- */
-#define COROUTINE_AWAIT_SOCKET(context, sfd, write)\
-			context->basic_context.next_state = __LINE__;\
-			coroutine_await_socket(&context->basic_context, sfd, write);\
-			return COROUTINE_WAIT;\
-		case __LINE__:\
-			context->basic_context.socket_fd = -1; \
-			context->basic_context.is_now_ready = NULL;
-
-
-/**
  * Insert a preemption point but don't continue until the given coroutine
  * is done.
  */
@@ -112,13 +99,6 @@ struct coroutine_basic_context
 #define COROUTINE_END(context) \
 	}\
 	return COROUTINE_DONE;
-
-/**
- * Create a new scheduler for coroutines.
- *
- * @return the scheduler nor NULL for an error.
- */
-coroutine_scheduler_t coroutine_scheduler_new(void);
 
 /**
  * Create a new scheduler for coroutines with a custom wait for event callback.
@@ -143,15 +123,6 @@ void coroutine_schedule_ready(coroutine_scheduler_t scheduler);
 void coroutine_scheduler_dispose(coroutine_scheduler_t scheduler);
 
 /**
- * Prepare the waiting state.
- *
- * @param context
- * @param socket_fd
- * @param write
- */
-void coroutine_await_socket(struct coroutine_basic_context *context, int socket_fd, int write);
-
-/**
  * Add a new coroutine to the scheduler.
  *
  * @param scheduler the schedule that should take care of the coroutine.
@@ -172,10 +143,11 @@ coroutine_t coroutine_add(coroutine_scheduler_t scheduler, coroutine_entry_t ent
 int coroutine_is_fd_now_ready(coroutine_scheduler_t scheduler, coroutine_t cor);
 
 /**
- * Schedule all coroutines.
+ * Schedule all coroutines once and execute possible state transitions.
  *
  * @param scheduler the scheduler
+ * @return whether there are unfinished coroutines
  */
-void coroutine_schedule(coroutine_scheduler_t scheduler);
+int coroutine_schedule(coroutine_scheduler_t scheduler);
 
 #endif
