@@ -33,6 +33,7 @@
 #include <proto/timer.h>
 #include <clib/alib_protos.h>
 
+#include "coroutines.h"
 #include "lists.h"
 #include "compiler.h"
 #include "debug.h"
@@ -548,7 +549,8 @@ int thread_parent_task_can_contiue(void)
  * @param entry
  * @param eudata
  * @return
- */static thread_t thread_start_new(char *thread_name, int (*entry)(void*), void *eudata)
+ */
+static thread_t thread_start_new(char *thread_name, int (*entry)(void*), void *eudata)
 {
 	struct thread_s *thread = (struct thread_s*)AllocVec(sizeof(*thread),MEMF_PUBLIC|MEMF_CLEAR);
 	if (thread)
@@ -994,7 +996,7 @@ int thread_call_parent_function_sync_timer_callback(void (*timer_callback)(void*
 
 /*****************************************************************************/
 
-int thread_wait(void (*timer_callback(void*)), void *timer_data, int millis)
+int thread_wait(coroutine_scheduler_t sched, void (*timer_callback(void*)), void *timer_data, int millis)
 {
 	struct timer timer;
 	int rc = 0;
@@ -1052,6 +1054,12 @@ int thread_wait(void (*timer_callback(void*)), void *timer_data, int millis)
 					}
 				}
 				FreeVec(tmsg);
+			}
+
+			/* And finally, schedule coroutines */
+			if (sched)
+			{
+				coroutine_schedule_ready(sched);
 			}
 
 			if (mask & SIGBREAKF_CTRL_C)
