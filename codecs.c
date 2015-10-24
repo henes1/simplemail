@@ -41,38 +41,8 @@ static const char encoding_table[] =
 	'0','1','2','3','4','5','6','7','8','9','+','/'
 };
 
+/*****************************************************************************/
 
-#if 0
-
-/**************************************************************************
- Gets the hexa digit if any (if not it returns 0). Otherwise
- the digit is in *val (only the lower 4 bits get overwritten)
-**************************************************************************/
-static int get_hexadigit(char c, int *pval)
-{
-	int val;
-
-	if (c >= '0' && c <= '9') val = c - '0';
-	else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
-	else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
-	else return 0;
-
-	*pval = ((*pval) & 0xfffffff0) | val;
-	return 1;
-}
-
-#endif
-
-/**
- * Decoding a given buffer using the base64 algorithm. *ret_len can be used
- * to cut the decoding, but the result might differ
- *
- * @param src
- * @param len
- * @param ret_len where to store the length of the decoded buffer.
- * @return the malloc'ed buffer or NULL on a failure. The actual buffer is
- * one byte larger than suggested by ret_len. The last byte is always a 0-byte.
- */
 char *decode_base64(unsigned char *src, unsigned int len, unsigned int *ret_len)
 {
    static const signed char decoding_table[128] = {
@@ -130,15 +100,13 @@ char *decode_base64(unsigned char *src, unsigned int len, unsigned int *ret_len)
    return (char*)realloc(deststart,*ret_len+1);
 }
 
-/**************************************************************************
- Decoding a given buffer using the quoted_printable algorithm.
- Set header to 1 if you want header decoding (underscore = space)
-**************************************************************************/
 #define IS_HEX(c)   ((((c) >= '0') && ((c) <= '9')) || \
                      (((c) >= 'A') && ((c) <= 'F')) || \
                      (((c) >= 'a') && ((c) <= 'f')))
 #define FROM_HEX(c) ((c) - (((c) > '9') ? \
                            (((c) > 'F') ? 'a' - 10 : 'A' - 10 ) : '0'))
+/*****************************************************************************/
+
 char *decode_quoted_printable(unsigned char *buf, unsigned int len, unsigned int *ret_len, int header)
 {
    unsigned char *dest,*deststart;
@@ -356,11 +324,16 @@ static int get_encode_str(unsigned char *buf)
 	return buf - buf_start;
 }
 
-/**************************************************************************
- Encodes a given header string (changed after 1.7)
- If structured is on the resulting string also may contains quotation
- marks
-**************************************************************************/
+/**
+ * Encodes a given header string (changed after 1.7)
+ * If structured is on the resulting string also may contains quotation
+ * marks
+ *
+ * @param toencode
+ * @param line_len_ptr
+ * @param structured
+ * @return
+ */
 static char *encode_header_str(char *toencode, int *line_len_ptr, int structured)
 {
 	int line_len = *line_len_ptr;
@@ -504,11 +477,16 @@ static char *encode_header_str(char *toencode, int *line_len_ptr, int structured
 	return encoded;
 }
 
-/**************************************************************************
- Encodes a given header string (changed after 1.7)
- If structured is on the resulting string also may contains quotation
- marks.
-**************************************************************************/
+/**
+ * Encodes a given header string (changed after 1.7)
+ * If structured is on the resulting string also may contains quotation
+ * marks.
+ *
+ * @param toencode
+ * @param line_len_ptr
+ * @param structured
+ * @return
+ */
 static char *encode_header_str_utf8(char *toencode, int *line_len_ptr, int structured)
 {
 	int line_len = *line_len_ptr;
@@ -643,12 +621,8 @@ static char *encode_header_str_utf8(char *toencode, int *line_len_ptr, int struc
 	return encoded;
 }
 
+/*****************************************************************************/
 
-/**************************************************************************
- Creates a unstructured encoded header field (includes all rules of the
- RFC 821 and RFC 2047)
- The string is allocated with malloc()
-**************************************************************************/
 char *encode_header_field(char *field_name, char *field_contents)
 {
 	char *header = NULL;
@@ -687,11 +661,8 @@ char *encode_header_field(char *field_name, char *field_contents)
 	return header;
 }
 
-/**************************************************************************
- Creates a unstructured encoded header field (includes all rules of the
- RFC 821 and RFC 2047)
- The string is allocated with malloc()
-**************************************************************************/
+/*****************************************************************************/
+
 char *encode_header_field_utf8(char *field_name, char *field_contents)
 {
 	char *header = NULL;
@@ -730,12 +701,8 @@ char *encode_header_field_utf8(char *field_name, char *field_contents)
 	return header;
 }
 
-/**************************************************************************
- Creates a structured address encoded header field (includes all rules of the
- RFC 821 and RFC 2047). List is the list with all addresses.
- The string is allocated with malloc().
- This function is going to be replaced with the below one soon.
-**************************************************************************/
+/*****************************************************************************/
+
 char *encode_address_field(char *field_name, struct address_list *address_list)
 {
 	int field_len = strlen(field_name) + 2; /* including the ':' and the space */
@@ -811,11 +778,8 @@ char *encode_address_field(char *field_name, struct address_list *address_list)
 	return header;
 }
 
-/**
- * Encode the given email address puny (RFC 3490)
- * @param email
- * @return Puny encoding of the email. Needs to be freed with free() when no longer in use.
- */
+/*****************************************************************************/
+
 char *encode_address_puny(utf8 *email)
 {
 	string email_str;
@@ -876,15 +840,8 @@ char *encode_address_puny(utf8 *email)
 	return email_str.str;
 }
 
-/**
- * Creates a structured address encoded header field (includes all rules of the
- * RFC 821, RFC 2047 and RFC3490). List is the list with all addresses.
- * The string is allocated with malloc()
- *
- * @param field_name
- * @param address_list
- * @return the generated string. Must be freed with free().
- */
+/*****************************************************************************/
+
 char *encode_address_field_utf8(char *field_name, struct address_list *address_list)
 {
 	struct address *address;
@@ -960,9 +917,13 @@ char *encode_address_field_utf8(char *field_name, struct address_list *address_l
 	return str.str;
 }
 
-/**************************************************************************
- Encodes the given body quoted printable and writes it into fh
-**************************************************************************/
+/**
+ * Encodes the given body quoted printable and writes it into fh
+ *
+ * @param fh
+ * @param buf
+ * @param len
+ */
 static void encode_body_quoted(FILE *fh, unsigned char *buf, unsigned int len)
 {
 	int line_len = 0;
@@ -1005,9 +966,13 @@ static void encode_body_quoted(FILE *fh, unsigned char *buf, unsigned int len)
 	}
 }
 
-/**************************************************************************
- Encodes the given body base64 and writes it into fh
-**************************************************************************/
+/**
+ * Encodes the given body base64 and writes it into fh
+ *
+ * @param fh
+ * @param buf
+ * @param len
+ */
 static void encode_body_base64(FILE *fh, unsigned char *buf, unsigned int len)
 {
 	int line_len = 0;
@@ -1153,10 +1118,16 @@ static void encode_body_base64(FILE *fh, unsigned char *buf, unsigned int len)
 	}
 }
 
-/**************************************************************************
- Returns the best encoding of a given buffer. Should actually only be
- used for text parts.
-**************************************************************************/
+/**
+ * Returns the best encoding of a given buffer. Should actually only be
+ * used for text parts.
+ *
+ * @param buf
+ * @param len
+ * @param max
+ * @return
+ */
+
 static char *get_best_encoding(unsigned char *buf, int len, char *max)
 {
 	int i,line_len=0,eight_bit=0;
@@ -1183,12 +1154,8 @@ static char *get_best_encoding(unsigned char *buf, int len, char *max)
 	return "quoted-printable";
 }
 
-/**************************************************************************
- Encodes the given body. The encoded buffer is allocated with malloc(),
- the length is stored in *ret_len and the used transfer encoding in
- *encoding (MIME Content-Transfer-Encoding). The retured buffer is 0 byte
- terminated.
-**************************************************************************/
+/*****************************************************************************/
+
 char *encode_body(unsigned char *buf, unsigned int len, char *content_type, unsigned int *ret_len, char **encoding)
 {
 	char *body = NULL;
@@ -1235,10 +1202,8 @@ char *encode_body(unsigned char *buf, unsigned int len, char *content_type, unsi
 	return body;
 }
 
-/**************************************************************************
- Encodes an given string to the base64 format. The string is 0 terminated.
- No line feeds are inserted.
-**************************************************************************/
+/*****************************************************************************/
+
 char *encode_base64(unsigned char *buf, unsigned int len)
 {
 	unsigned char *dest = (unsigned char*)malloc((len * 4)/3 + 8);
