@@ -16,9 +16,9 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ***************************************************************************/
 
-/*
-** appicon.c
-*/
+/**
+ * @file appicon.c
+ */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -41,9 +41,6 @@
 
 #include "mainwnd.h"
 #include "statuswnd.h"
-
-void app_show(void);                          /* in gui_main.c */
-void app_quit(void);
 
 struct AppIcon_Stat
 {
@@ -83,9 +80,8 @@ static STRPTR appicon_names[SM_APPICON_MAX] =
 
 static void appicon_load_position(void);
 
-/****************************************************************
- Initialize the appicon port and objects.
-*****************************************************************/
+/*****************************************************************************/
+
 int appicon_init(void)
 {
 	int i;
@@ -124,9 +120,8 @@ int appicon_init(void)
 	return 1;
 }
 
-/****************************************************************
- Free the appicon port and objects.
-*****************************************************************/
+/*****************************************************************************/
+
 void appicon_free(void)
 {
 	int i;
@@ -141,18 +136,16 @@ void appicon_free(void)
 	if (appicon_config.filename) free(appicon_config.filename);
 }
 
-/****************************************************************
- Returns the mask of the appicon port
-*****************************************************************/
+/*****************************************************************************/
+
 ULONG appicon_mask(void)
 {
 	if (!appicon_port) return 0UL;
 	return 1UL << appicon_port->mp_SigBit;
 }
 
-/****************************************************************
- Handles the appicon events
-*****************************************************************/
+/*****************************************************************************/
+
 void appicon_handle(void)
 {
 	struct AppMessage *appicon_msg;
@@ -210,9 +203,8 @@ void appicon_handle(void)
 	}
 }
 
-/******************************************************************
- Refreshs the AppIcon
-*******************************************************************/
+/*****************************************************************************/
+
 void appicon_refresh(int force)
 {
 	static char appicon_label[256];
@@ -281,6 +273,8 @@ void appicon_refresh(int force)
 		appicon_label[0] = '\0';
 		for (src = user.config.appicon_label; *src; src++)
 		{
+			int l;
+
 			if (*src == '%')
 			{
 				switch (*++src)
@@ -297,7 +291,9 @@ void appicon_refresh(int force)
 			{
 				sprintf(buf, "%c", *src);
 			}
-			strcat(appicon_label, buf);
+			/* TODO: Keep pointer */
+			l = strlen(appicon_label);
+			mystrlcpy(appicon_label + l, buf, sizeof(appicon_label) - l);
 		}
 
 		/* get the position of the last appicon */
@@ -329,9 +325,11 @@ void appicon_refresh(int force)
 	}
 }
 
-/******************************************************************
- Load the AppIcon Position
-*******************************************************************/
+/*****************************************************************************/
+
+/**
+ * Load the AppIcon position
+ */
 static void appicon_load_position(void)
 {
 	char *buf;
@@ -384,9 +382,9 @@ static void appicon_load_position(void)
 	}
 }
 
-/******************************************************************
- Save the AppIcon Position
-*******************************************************************/
+/**
+ * Save the AppIcon position.
+ */
 static void appicon_save_position(void)
 {
 	if (appicon_config.filename)
@@ -404,9 +402,8 @@ static void appicon_save_position(void)
 	}
 }
 
-/******************************************************************
- SnapShot the AppIcon
-*******************************************************************/
+/*****************************************************************************/
+
 void appicon_snapshot(void)
 {
 	if ((appicon_last_mode >= 0) && (appicon_last_mode < SM_APPICON_MAX))
@@ -417,9 +414,8 @@ void appicon_snapshot(void)
 	}
 }
 
-/******************************************************************
- UnSnapShot the AppIcon
-*******************************************************************/
+/*****************************************************************************/
+
 void appicon_unsnapshot(void)
 {
 	int i;
@@ -438,9 +434,8 @@ void appicon_unsnapshot(void)
 	appicon_refresh(1);
 }
 
-/****************************************************************
- Returns the HideIcon object pointer
-*****************************************************************/
+/*****************************************************************************/
+
 struct DiskObject *appicon_get_hide_icon(void)
 {
 	return HideIcon;
