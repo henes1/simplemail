@@ -7,11 +7,13 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include <workbench/startup.h>
 
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <proto/intuition.h>
 #include <proto/locale.h>
 #include <proto/utility.h>
 
@@ -29,6 +31,7 @@
 
 /*#define MYDEBUG*/
 #include "amigadebug.h"
+#include "timesupport.h"
 
 struct Library *SysBase;
 struct Library *DOSBase;
@@ -49,7 +52,7 @@ struct Library *LayersBase;
 struct ExecIFace *IExec;
 struct DOSIFace *IDOS;
 struct UtilityIFace *IUtility;
-struct Interface *IIntuition;
+struct IntuitionIFace *IIntuition;
 struct LocaleIFace *ILocale;
 #ifdef MEMGRIND
 struct MMUIFace *IMMU;
@@ -1404,6 +1407,21 @@ int isdigit(int c)
 	return ('0' <= c && c <= '9');
 }
 
+int isxdigit(int c)
+{
+	return isdigit(c) || ((c>='a' && c <= 'f') && (c>='A' && c <= 'F'));
+}
+
+int isalnum(int c)
+{
+	return isalpha(c) || isdigit(c);
+}
+
+int isupper(int c)
+{
+	return c>='A' && c <= 'Z';
+}
+
 int tolower(int c)
 {
 	return ('A' <= c && c <= 'Z') ? (c + ('a' - 'A')) : c;
@@ -1427,6 +1445,40 @@ int strcasecmp(const char *str1, const char *str2)
 int strncasecmp(const char *str1, const char *str2, size_t size)
 {
 	return IUtility->Strnicmp(str1,str2,size);
+}
+
+int gettimeofday(struct timeval *tv, struct timezone *tz)
+{
+	ULONG mics,secs;
+
+	IIntuition->CurrentTime(&secs,&mics);
+
+	tv->tv_micro = mics;
+	tv->tv_secs = secs;
+
+	return 0;
+}
+
+static struct tm tm;
+
+/* This function is only used by mem_dbg.c of openssl. Only few elements are
+ * used */
+struct tm *localtime(const time_t *t)
+{
+	ULONG mics, secs;
+	struct ClockData cd;
+
+	IIntuition->CurrentTime(&secs,&mics);
+	IUtility->Amiga2Date(secs, &cd);
+	tm.tm_hour = cd.hour;
+	tm.tm_mday = cd.mday;
+	tm.tm_min = cd.min;
+	tm.tm_mon = cd.month - 1;
+	tm.tm_sec = cd.sec;
+	tm.tm_wday = cd.wday;
+	tm.tm_yday = 0; /* Not needed */
+	tm.tm_year = cd.year - 1900;
+	return &tm;
 }
 
 //int __random_seed = 1;

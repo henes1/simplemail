@@ -334,6 +334,7 @@ static void account_store(void)
 		account_last_selected->imap->passwd = mystrdup((char*)xget(account_recv_password_string, MUIA_String_Contents));
 		account_last_selected->imap->active = xget(account_recv_active_check, MUIA_Selected);
 		account_last_selected->imap->ssl = recv_security == RECV_SECURITY_TLS;
+		account_last_selected->imap->starttls = recv_security == RECV_SECURITY_STLS;
 		account_last_selected->smtp->port = xget(account_send_port_string, MUIA_String_Integer);
 		account_last_selected->smtp->ip_as_domain = xget(account_send_ip_check, MUIA_Selected);
 		account_last_selected->smtp->pop3_first = xget(account_send_pop3_check, MUIA_Selected);
@@ -361,11 +362,12 @@ static void account_load(void)
 		if (account_is_imap(account))
 		{
 			if (account->imap->ssl) recv_security = RECV_SECURITY_TLS;
+			else if (account->imap->starttls) recv_security = RECV_SECURITY_STLS;
 			else recv_security = RECV_SECURITY_NONE;
 		} else
 		{
-			if (account->pop->stls) recv_security = RECV_SECURITY_TLS;
-			else if (account->pop->ssl) recv_security = RECV_SECURITY_STLS;
+			if (account->pop->ssl) recv_security = RECV_SECURITY_TLS;
+			else if (account->pop->stls) recv_security = RECV_SECURITY_STLS;
 			else recv_security = RECV_SECURITY_NONE;
 		}
 
@@ -1351,7 +1353,7 @@ static int init_account_group(void)
 	/* connect the up/down keys to the List */
 	set(account_account_name_string, MUIA_String_AttachedList, account_account_list);
 
-	/* Update the account_list if one of the displayd fields are changed */
+	/* Update the account_list if one of the displayed fields are changed */
 	/* This fields must be set without notification in the account_load() function! */
 	DoMethod(account_account_name_string, MUIM_Notify, MUIA_String_Contents, MUIV_EveryTime, (ULONG)App, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)account_update);
 	DoMethod(account_email_string, MUIM_Notify, MUIA_String_Contents, MUIV_EveryTime, (ULONG)App, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)account_update);
@@ -1370,6 +1372,7 @@ static int init_account_group(void)
 	DoMethod(account_remove_button, MUIM_Notify, MUIA_Pressed, FALSE, (ULONG)App, 6, MUIM_Application_PushMethod, (ULONG)App, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)account_remove);
 
 	DoMethod(account_recv_type_radio, MUIM_Notify, MUIA_Radio_Active, MUIV_EveryTime, (ULONG)account_recv_avoid_check, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
+	DoMethod(account_recv_type_radio, MUIM_Notify, MUIA_Radio_Active, MUIV_EveryTime, (ULONG)account_recv_apop_cycle, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
 
 	set(account_recv_secure_cycle, MUIA_Weight, 0);
 	set(account_send_secure_cycle, MUIA_Weight, 0);
@@ -1378,11 +1381,11 @@ static int init_account_group(void)
 	set(account_email_string,MUIA_ShortHelp,_("Your E-Mail address for this account (required)"));
 	set(account_reply_string,MUIA_ShortHelp,_("Address where the replies of the mails should\nbe sent (required only if different from the e-mail address)."));
 	set(account_def_signature_cycle,MUIA_ShortHelp,_("The default signature for this account"));
-	set(account_recv_server_string,MUIA_ShortHelp,_("The name of the so called POP3 server from\nwhich you download your e-Mails (required; ask your\nprovider if unknown)."));
+	set(account_recv_server_string,MUIA_ShortHelp,_("The name of the so called POP3 or IMAP4 server from\nwhich you download your e-Mails (required; ask your\nprovider if unknown)."));
 	set(account_recv_port_string,MUIA_ShortHelp,_("The port number. Usually 110"));
 	set(account_recv_fingerprint_string,MUIA_ShortHelp,_("The server's fingerprint (SHA1 or SHA256).\nThis is used to verify the servers identity,\nif the certificate could not be trusted."));
 	set(account_recv_login_string,MUIA_ShortHelp,_("The login/UserID which you got from your ISP."));
-	set(account_recv_password_string,MUIA_ShortHelp,_("Your very own password to access the mails\nlocated on the POP3 server."));
+	set(account_recv_password_string,MUIA_ShortHelp,_("Your very own password to access the mails\nlocated on the POP3 or IMAP4 server."));
 	set(account_recv_active_check,MUIA_ShortHelp,_("Deactivate this if you don't want SimpleMail to\ndownload the e-Mails when pressing on 'Fetch'."));
 	set(account_recv_delete_check,MUIA_ShortHelp,_("After successful downloading the mails should be deleted\non the POP3 server."));
 	set(account_recv_avoid_check,MUIA_ShortHelp,_("When not deleting e-mails on the server SimpleMail\ntries to avoid downloading a message twice the next time."));
@@ -1540,7 +1543,7 @@ static int init_mails_readmisc_group(void)
 
   set(mails_readmisc_close_after_last, MUIA_ShortHelp, _("If this option is enabled, SimpleMail will close the read window "
                                                          "after all mails in the folder have been processed (e.g. deleted) by the user "
-                                                         "completly in the current direction. Otherwise SimpleMail tries to browse into "
+                                                         "completely in the current direction. Otherwise SimpleMail tries to browse into "
                                                          "the other direction and closes the window only if no other mail exists within "
                                                          "the folder."));
 
