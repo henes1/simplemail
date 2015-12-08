@@ -22,9 +22,8 @@ OBJSDIRSUFFIX = openssl
 # The commit identifier that is compiled into SimpleMail
 COMMITID := '"$(shell svnversion || echo unknown commit)"'
 
-# Some other identifiers used as tags for the archive name
-COMMITS := $(COMMITID)
-VERSION_TAG := $(subst SNAPSHOT,-$(shell date "+%Y%m%d")-$(shell printf %06d $(COMMITS)),$(shell cat VERSION-TAG))
+# COMMITID, COMMITS, and VERSION_TAG macros
+#include common-version-tag.mk
 
 OPTIMIZE = -O3
 DEBUG = -g
@@ -44,7 +43,7 @@ CFLAGS = \
 	-DHAVE_STRCASECMP \
 	-DHAVE_STRNCASECMP \
 	-DHAVE_OPENURL \
-	-DNDEBUG\
+	-DNDEBUG \
 	-DAMITCP_SDK \
 	-DSM_COMMITID=$(COMMITID)\
 	-D__MORPHOS_SHAREDLIBS \
@@ -69,16 +68,15 @@ VERSION = 0
 # Source code files used in this project
 
 ARCHSRCS=\
-	startup-morphos.c \
 	accountpopclass.c \
 	addressbookwnd.c \
 	addressentrylistclass.c \
 	addressgrouplistclass.c \
 	addressmatchlistclass.c \
 	addressstringclass.c \
+	amigasupport.c \
 	appicon.c \
 	archdebug.c \
-	amigasupport.c \
 	arexx.c \
 	attachmentlistclass.c \
 	audioselectgroupclass.c \
@@ -98,8 +96,8 @@ ARCHSRCS=\
 	gui_main.c \
 	iconclass.c \
 	mailinfoclass.c \
-	mailtreelistclass.c \
 	mailtreelistclass-new.c \
+	mailtreelistclass.c \
 	mainwnd.c \
 	messageviewclass.c \
 	muistuff.c \
@@ -109,24 +107,27 @@ ARCHSRCS=\
 	popupmenuclass.c \
 	progmonwnd.c \
 	readwnd.c \
+	request.c \
 	searchwnd.c \
 	shutdownwnd.c \
 	smtoolbarclass.c \
 	socket-stubs.c \
 	signaturecycleclass.c \
+	startup-morphos.c \
 	startupwnd.c \
 	statuswnd.c \
-	subthreads.c \
+	subthreads_amiga.c \
 	support.c \
 	sysprint.c \
 	tcpip.c \
+	timesupport.c \
 	transwndclass.c \
 	utf8stringclass.c \
 	vsnprintf.c
 
 include common-sources.mk
 
-SRCS = $(addprefix amiga-mui/,$(ARCHSRCS)) $(NONARCHSRCS)
+SRCS = $(NONARCHSRCS) $(addprefix amiga-mui/,$(ARCHSRCS))
 
 # -------------------------------------------------------------
 
@@ -135,6 +136,8 @@ OBJSDIR=$(CROSS_COMPILE)objs-$(OBJSDIRSUFFIX)
 OBJS = $(SRCS:%.c=$(OBJSDIR)/%.o)
 
 all: $(TARGET)
+
+include common-rules.mk
 
 .PHONY: dirs
 dirs:
@@ -147,7 +150,7 @@ $(TARGET): dirs $(OBJS)
 	chmod a+x $@
 
 $(OBJSDIR)/%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
 
 .PHONY: clean
 clean:
@@ -216,3 +219,6 @@ prepare-release: $(TARGET) locale
 	cd $(DESTDIR) && lha -r a $(ARCHIVE_NAME) SimpleMail.info SimpleMail
 	cp $(DESTDIR)/$(ARCHIVE_NAME) .
 	rm -rf $(DESTDIR)
+
+# Now include dependencies, but don't fail if they are not available
+-include $(OBJS:.o=.d)
