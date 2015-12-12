@@ -61,7 +61,7 @@ static Object *close_button;
 static void error_select(void)
 {
 	int num = xget(all_errors_list, MUIA_NList_Active);
-	struct error_node *node = (struct error_node *)list_find(&error_list,num-1);
+	struct error_node *node = (struct error_node *)list_find(&error_list,num);
 
 	set(text_list, MUIA_NList_Quiet, TRUE);
 	DoMethod(text_list, MUIM_NList_Clear);
@@ -151,7 +151,7 @@ static void init_error(void)
 		DoMethod(error_wnd, MUIM_Notify, MUIA_Window_CloseRequest, TRUE, (ULONG)error_wnd, 3, MUIM_Set, MUIA_Window_Open, FALSE);
 		DoMethod(delete_button, MUIM_Notify, MUIA_Pressed, FALSE, (ULONG)delete_button, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)delete_messages);
 		DoMethod(close_button, MUIM_Notify, MUIA_Pressed, FALSE, (ULONG)error_wnd, 3, MUIM_Set, MUIA_Window_Open, FALSE);
-		DoMethod(all_errors_list, MUIM_Notify, MUIA_NList_Active, (ULONG)all_errors_list, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)error_select);
+		DoMethod(all_errors_list, MUIM_Notify, MUIA_NList_Active, MUIV_EveryTime, (ULONG)all_errors_list, 3, MUIM_CallHook, (ULONG)&hook_standard, (ULONG)error_select);
 	}
 }
 
@@ -159,35 +159,41 @@ static void init_error(void)
 
 void error_add_message(char *msg)
 {
-	if (!error_wnd) init_error();
-	if (error_wnd)
+	struct error_node *enode;
+
+	if (!error_wnd)
 	{
-		struct error_node *enode = (struct error_node*)malloc(sizeof(struct error_node));
-		if (enode)
-		{
-			if ((enode->text = mystrdup(msg)))
-			{
-				enode->date = sm_get_current_seconds();
-
-				set(text_list, MUIA_NList_Quiet, TRUE);
-				DoMethod(text_list, MUIM_NList_Clear);
-				DoMethod(text_list, MUIM_NList_InsertSingleWrap, (ULONG)enode->text, MUIV_NList_Insert_Bottom, WRAPCOL0, ALIGN_LEFT);
-				set(text_list, MUIA_NList_Quiet, FALSE);
-
-				list_insert_tail(&error_list, &enode->node);
-
-				DoMethod(all_errors_list, MUIM_NList_InsertSingle, enode, MUIV_NList_Insert_Bottom);
-			} else free(enode);
-		}
+		init_error();
+		if (!error_wnd) return;
 	}
+	if (!(enode = (struct error_node*)malloc(sizeof(struct error_node))))
+		return;
+
+	if ((enode->text = mystrdup(msg)))
+	{
+		enode->date = sm_get_current_seconds();
+
+		set(text_list, MUIA_NList_Quiet, TRUE);
+		DoMethod(text_list, MUIM_NList_Clear);
+		DoMethod(text_list, MUIM_NList_InsertSingleWrap, (ULONG)enode->text, MUIV_NList_Insert_Bottom, WRAPCOL0, ALIGN_LEFT);
+		set(text_list, MUIA_NList_Quiet, FALSE);
+
+		list_insert_tail(&error_list, &enode->node);
+
+		DoMethod(all_errors_list, MUIM_NList_InsertSingle, enode, MUIV_NList_Insert_Bottom);
+	} else free(enode);
 }
 
 /*****************************************************************************/
 
 void error_window_open(void)
 {
-	if (!error_wnd) init_error();
-	if (!error_wnd) return;
+	if (!error_wnd)
+	{
+		init_error();
+
+		if (!error_wnd) return;
+	}
 
 	set(error_wnd, MUIA_Window_Open, TRUE);
 }
