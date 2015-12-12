@@ -421,6 +421,8 @@ int load_config(void)
 										account->smtp->pop3_first = CONFIG_BOOL_VAL(result);
 									if ((result = get_key_value(account_buf,"SMTP.Secure")))
 										account->smtp->secure = CONFIG_BOOL_VAL(result);
+									if ((result = get_key_value(account_buf,"SMTP.SSL")))
+										account->smtp->ssl = CONFIG_BOOL_VAL(result);
 
 									if ((result = get_key_value(account_buf,"RECV.Type")))
 										account->recv_type = atoi(result);
@@ -464,6 +466,8 @@ int load_config(void)
 										account->imap->active = atoi(result);
 									if ((result = get_key_value(account_buf,"IMAP.SSL")))
 										account->imap->ssl = CONFIG_BOOL_VAL(result);
+									if ((result = get_key_value(account_buf,"IMAP.STARTTLS")))
+										account->imap->starttls = CONFIG_BOOL_VAL(result);
 									if ((result = get_key_value(account_buf,"IMAP.Ask")))
 										account->imap->ask = CONFIG_BOOL_VAL(result);
 								}
@@ -679,6 +683,7 @@ void save_config(void)
 				fprintf(fh,"ACCOUNT%d.SMTP.IPasDomain=%s\n",i,account->smtp->ip_as_domain?"Y":"N");
 				fprintf(fh,"ACCOUNT%d.SMTP.POP3first=%s\n",i,account->smtp->pop3_first?"Y":"N");
 				fprintf(fh,"ACCOUNT%d.SMTP.Secure=%s\n",i,account->smtp->secure?"Y":"N");
+				fprintf(fh,"ACCOUNT%d.SMTP.SSL=%s\n",i,account->smtp->ssl?"Y":"N");
 
 				fprintf(fh,"ACCOUNT%d.RECV.Type=%d\n",i,account->recv_type);
 				fprintf(fh,"ACCOUNT%d.POP3.Server=%s\n",i,MAKESTR(account->pop->name));
@@ -701,6 +706,7 @@ void save_config(void)
 				fprintf(fh,"ACCOUNT%d.IMAP.Password=%s\n",i,MAKESTR(account->imap->passwd));
 				fprintf(fh,"ACCOUNT%d.IMAP.Active=%d\n",i,account->imap->active);
 				fprintf(fh,"ACCOUNT%d.IMAP.SSL=%s\n",i,account->imap->ssl?"Y":"N");
+				fprintf(fh,"ACCOUNT%d.IMAP.STARTTLS=%s\n",i,account->imap->starttls?"Y":"N");
 				fprintf(fh,"ACCOUNT%d.IMAP.Ask=%s\n",i,account->imap->ask?"Y":"N");
 
 				account = (struct account*)node_next(&account->node);
