@@ -765,4 +765,51 @@ int mails_upload_single(struct mail_info *mi)
 	return 1;
 }
 
+/*****************************************************************************/
 
+static thread_t test_account_thread;
+
+static int mails_test_account_entry(void *udata)
+{
+	struct account *ac = account_duplicate((struct account*)udata);
+	if (!ac) return 0;
+	if (!thread_parent_task_can_contiue())
+		goto bailout;
+
+	/* Test logging into the receive server */
+	if (account_is_imap(ac))
+	{
+		if (ac->imap && ac->imap->name)
+		{
+			/* TODO: Write me */
+		}
+	} else if (ac->pop && ac->pop->name)
+	{
+		struct pop3_dl_callbacks pop3_callbacks = {0};
+		pop3_callbacks.set_status_static = trans_set_status_static;
+		pop3_callbacks.set_status = trans_set_status;
+		pop3_login_only(ac->pop, &pop3_callbacks);
+	}
+
+	/* Test logging into the send server if any */
+	if (ac->smtp && ac->smtp->name)
+	{
+	}
+
+	/* Test logging into the send server */
+bailout:
+	if (ac) account_free(ac);
+
+	/* It is okay if the thread is shortly yielded after setting this to NULL */
+	test_account_thread = NULL;
+	return 0; /* Return value not really relevant */
+}
+
+int mails_test_account(struct account *ac)
+{
+	if (test_account_thread) return 0;
+
+	if (!(test_account_thread = thread_add("SimpleMail - Test Account", mails_test_account_entry, ac)))
+		return 0;
+	return 1;
+}
