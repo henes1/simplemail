@@ -39,6 +39,7 @@
 #include "mainwnd.h"
 #include "parse.h"
 #include "pop3.h"
+#include "progmon.h"
 #include "smintl.h"
 #include "smtp.h"
 #include "spam.h"
@@ -773,24 +774,40 @@ static thread_t test_account_thread;
 struct mails_test_account_data
 {
 	struct account *ac;
-	void (*account_tested_callback)(int success);
+	account_tested_callback_t callback;
 };
 
 static int mails_test_account_entry(void *udata)
 {
+	struct progmon *pm = NULL;
 	struct account *ac = account_duplicate(((struct mails_test_account_data*)udata)->ac);
-	void (*account_tested_callback)(int) = ((struct mails_test_account_data*)udata)->account_tested_callback;
-	int success = 0;
+	account_tested_callback_t callback = ((struct mails_test_account_data*)udata)->callback;
+	account_tested_callback_success_t success = RESOURCE_FAILED;
 
 	if (!ac)
 	{
-		account_tested_callback(0);
+		callback(success);
 		return 0;
 	}
 	if (!thread_parent_task_can_contiue())
 		goto bailout;
 
+	/* Progress monitor is optional */
+	if ((pm = progmon_create()))
+	{
+		utf8 txt[80];
+		utf8fromstr(_("Testing account settings"),NULL,txt,sizeof(txt));
+		pm->begin(pm, 2, txt);
+	}
+
 	/* Test logging into the receive server */
+	if (pm)
+	{
+		utf8 txt[80];
+		utf8fromstr(_("Testing receive settings"),NULL,txt,sizeof(txt));
+		pm->working_on(pm, txt);
+	}
+
 	if (account_is_imap(ac))
 	{
 		if (ac->imap && ac->imap->name)
@@ -809,11 +826,23 @@ static int mails_test_account_entry(void *udata)
 		} else
 		{
 			status_text = _("Failed to login into POP3 server");
+			success |= POP3_FAILED;
 		}
 		trans_set_status_static(status_text);
 	}
 
+	if (pm)
+	{
+		pm->work(pm, 1);
+	}
+
 	/* Test logging into the send server if any */
+	if (pm)
+	{
+		utf8 txt[80];
+		utf8fromstr(_("Testing send settings"),NULL,txt,sizeof(txt));
+		pm->working_on(pm, txt);
+	}
 	if (ac->smtp && ac->smtp->name)
 	{
 		const char *status_text;
@@ -825,15 +854,23 @@ static int mails_test_account_entry(void *udata)
 		} else
 		{
 			status_text = _("Failed to login into SMTP server");
+			success |= SMTP_FAILED;
 		}
 		trans_set_status_static(status_text);
 	}
 
-	success = 1;
+	if (pm)
+	{
+		pm->work(pm, 1);
+		pm->done(pm);
+	}
+
+	success &= ~RESOURCE_FAILED;
 bailout:
+	if (pm) progmon_delete(pm);
 	if (ac) account_free(ac);
 
-	account_tested_callback(success);
+	callback(success);
 
 	/* It is okay if the thread is shortly yielded after setting this to NULL */
 	test_account_thread = NULL;
@@ -842,14 +879,14 @@ bailout:
 
 /*****************************************************************************/
 
-int mails_test_account(struct account *ac, void (*account_tested_callback)(int success))
+int mails_test_account(struct account *ac, account_tested_callback_t callback)
 {
 	struct mails_test_account_data data = {0};
 
 	if (test_account_thread) return 0;
 
 	data.ac = ac;
-	data.account_tested_callback = account_tested_callback;
+	data.callback = callback;
 
 	if (!(test_account_thread = thread_add("SimpleMail - Test Account", mails_test_account_entry, &data)))
 		return 0;
