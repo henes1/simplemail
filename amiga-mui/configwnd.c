@@ -245,6 +245,14 @@ void config_refresh_folders(void)
 	if (startup_folder_tree) DoMethod(startup_folder_tree, MUIM_FolderTreelist_Refresh, NULL);
 }
 
+/*****************************************************************************/
+
+void config_accounts_can_be_tested(int tested)
+{
+	if (!config_wnd) return;
+	set(account_test_button, MUIA_Disabled, !tested);
+}
+
 /**
  * Object to string hook function for the startup folder popobject.
  */
@@ -1249,6 +1257,8 @@ static int init_account_group(void)
 					MUIA_Radio_Entries, recv_entries,
 					End,
 				Child, HVSpace,
+				Child, MakeLabel(_("Active")),
+				Child, account_recv_active_check = MakeCheck(_("Active"), FALSE),
 				End,
 			Child, MakeLabel(_("Server")),
 			Child, HGroup,
@@ -1295,28 +1305,14 @@ static int init_account_group(void)
 			End,
 
 		Child, HGroup,
-			Child, VGroup,
-				Child, ColGroup(2),
-					Child, MakeLabel(_("Active")),
-					Child, HGroup,
-						Child, account_recv_active_check = MakeCheck(_("Active"), FALSE),
-						Child, HSpace(0),
-						End,
-
-					Child, MakeLabel(_("APOP")),
-					Child, account_recv_apop_cycle = MakeCycle(_("APOP"), apop_labels),
-					End,
-				End,
+			Child, MakeLabel(_("APOP")),
+			Child, account_recv_apop_cycle = MakeCycle(_("APOP"), apop_labels),
 			Child, HVSpace,
-			Child, VGroup,
-				Child, ColGroup(2),
-					Child, MakeLabel(_("Avoid duplicates")),
-					Child, account_recv_avoid_check = MakeCheck(_("Avoid duplicates"), FALSE),
-
-					Child, MakeLabel(_("_Delete mails")),
-					Child, account_recv_delete_check = MakeCheck(_("_Delete mails"), FALSE),
-					End,
-				End,
+			Child, MakeLabel(_("Avoid duplicates")),
+			Child, account_recv_avoid_check = MakeCheck(_("Avoid duplicates"), FALSE),
+			Child, HVSpace,
+			Child, MakeLabel(_("_Delete mails")),
+			Child, account_recv_delete_check = MakeCheck(_("_Delete mails"), FALSE),
 			End,
 
 		Child, HorizLineTextObject(_("Send")),
@@ -1405,9 +1401,11 @@ static int init_account_group(void)
 
 	DoMethod(account_recv_type_radio, MUIM_Notify, MUIA_Radio_Active, MUIV_EveryTime, (ULONG)account_recv_avoid_check, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
 	DoMethod(account_recv_type_radio, MUIM_Notify, MUIA_Radio_Active, MUIV_EveryTime, (ULONG)account_recv_apop_cycle, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
+	DoMethod(account_recv_type_radio, MUIM_Notify, MUIA_Radio_Active, MUIV_EveryTime, (ULONG)account_recv_delete_check, 3, MUIM_Set, MUIA_Disabled, MUIV_TriggerValue);
 
 	set(account_recv_secure_cycle, MUIA_Weight, 0);
 	set(account_send_secure_cycle, MUIA_Weight, 0);
+	set(account_recv_apop_cycle, MUIA_Weight, 0);
 
 	set(account_name_string,MUIA_ShortHelp,_("Your full name (required)"));
 	set(account_email_string,MUIA_ShortHelp,_("Your E-Mail address for this account (required)"));
