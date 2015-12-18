@@ -586,15 +586,10 @@ struct imap_get_remote_mails_args
 };
 
 /**
- * Read information of all mails in the given path. Put
- * this back into an array.
+ * Read information of all mails in the given path. Put this back into an array.
  *
- * @param conn defines the connection
- * @param path defines the utf8 encoded path.
- * @param writemode
- * @param headers specifies whether headers are requested.
- * @param uid_start
- * @param uid_end
+ * @param no_mails where is it stored, if the folder is empty.
+ * @param args arguments to this function.
  *
  * @return returns information of the mailbox in form of a remote_mailbox object.
  *         NULL on failure (for any reasons). If not NULL, the elements in remote_mail_array
@@ -603,7 +598,7 @@ struct imap_get_remote_mails_args
  * @note the given path stays in the selected/examine state.
  * @note the returned structure must be free with imap_free_remote_mailbox()
  */
-static struct remote_mailbox *imap_get_remote_mails(struct imap_get_remote_mails_args *args)
+static struct remote_mailbox *imap_get_remote_mails(int *empty_folder, struct imap_get_remote_mails_args *args)
 {
 	/* get number of remote mails */
 	char *line;
@@ -625,6 +620,9 @@ static struct remote_mailbox *imap_get_remote_mails(struct imap_get_remote_mails
 	struct imap_select_mailbox_args select_mailbox_args = {0};
 
 	SM_ENTER;
+
+	/* Assume non-empty folder */
+	if (empty_folder) *empty_folder = 0;
 
 	select_mailbox_args.conn = conn;
 	select_mailbox_args.path = path;
@@ -769,6 +767,9 @@ static struct remote_mailbox *imap_get_remote_mails(struct imap_get_remote_mails
 
 			SM_DEBUGF(10,("Remote mail array fetched after %d ms\n",time_ms_passed(fetch_time_ref)));
 		}
+	} else
+	{
+		if (empty_folder) *empty_folder = 1;
 	}
 	if (!success)
 	{
@@ -928,6 +929,7 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 		if (local_mail_array)
 		{
 			struct remote_mailbox *rm;
+			int empty_folder;
 
 			/* get number of remote mails */
 			char *line;
@@ -947,7 +949,7 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 			{
 				args.writemode = 1;
 
-				if ((rm = imap_get_remote_mails(&args)))
+				if ((rm = imap_get_remote_mails(NULL, &args)))
 				{
 					struct remote_mail *remote_mail_array;
 					int num_of_remote_mails;
@@ -1017,7 +1019,7 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 			args.writemode = 0;
 
 			/* Get information of all mails within the folder */
-			if ((rm = imap_get_remote_mails(&args)))
+			if ((rm = imap_get_remote_mails(&empty_folder, &args)))
 			{
 				int i,j;
 				unsigned int max_todl_bytes = 0;
@@ -1162,6 +1164,13 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 				}
 
 				imap_free_remote_mailbox(rm);
+			} else
+			{
+				/* Assume success if folder was empty */
+				if (empty_folder)
+				{
+					success = 1;
+				}
 			}
 		}
 
@@ -1171,6 +1180,8 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 	} else folders_unlock();
 	return success;
 }
+
+/*****************************************************************************/
 
 /**
  * Synchronize a single imap account.
@@ -1183,9 +1194,8 @@ static int imap_synchonize_folder(struct connection *conn, struct imap_server *s
 static int imap_synchronize_really_single(struct imap_server *server, struct imap_synchronize_callbacks *callbacks)
 {
 	struct connection *conn;
-	struct connect_options conn_opts = {0};
+	struct imap_connect_and_login_to_server_callbacks login_callbacks = {0};
 	char head_buf[100];
-	int error_code;
 
 	SM_DEBUGF(10,("Synchronizing with server \"%s\"\n",server->name));
 
@@ -1197,88 +1207,49 @@ static int imap_synchronize_really_single(struct imap_server *server, struct ima
 		callbacks->set_title(server->name);
 	callbacks->set_connect_to_server(server->name);
 
-	/* Ask for the login/password */
-	if (server->ask)
+	login_callbacks.request_login = callbacks->request_login;
+	login_callbacks.set_status = callbacks->set_status;
+
+	if (imap_really_connect_and_login_to_server(&conn, server, &login_callbacks))
 	{
-		char *password = (char*)malloc(512);
-		char *login = (char*)malloc(512);
+		struct string_list *folder_list;
+		callbacks->set_status_static(_("Login successful"));
+		callbacks->set_status_static(_("Checking for folders"));
 
-		if (password && login)
+		SM_DEBUGF(10,("Get folders\n"));
+		if ((folder_list = imap_get_folders(conn,0)))
 		{
-			int rc;
+			struct string_node *node;
 
-			if (server->login) mystrlcpy(login,server->login,512);
-			password[0] = 0;
-
-			if ((rc = callbacks->request_login(server->name,login,password,512)))
+			/* add the folders */
+			node = string_list_first(folder_list);
+			while (node)
 			{
-				server->login = mystrdup(login);
-				server->passwd = mystrdup(password);
+				callbacks->add_imap_folder(server->login,server->name,node->string);
+				node = (struct string_node*)node_next(&node->node);
 			}
-		}
+			callbacks->refresh_folders();
 
-		free(password);
-		free(login);
-	}
-
-	conn_opts.use_ssl = server->ssl && !server->starttls;
-	conn_opts.fingerprint = server->fingerprint;
-
-	SM_DEBUGF(10,("Connecting\n"));
-	if ((conn = tcp_connect(server->name, server->port, &conn_opts, &error_code)))
-	{
-		callbacks->set_status_static(_("Waiting for login..."));
-		SM_DEBUGF(10,("Waiting for login\n"));
-		if (imap_wait_login(conn,server))
-		{
-			callbacks->set_status_static(_("Login..."));
-			SM_DEBUGF(10,("Login\n"));
-			if (imap_login(conn,server))
+			/* sync the folders */
+			node = string_list_first(folder_list);
+			while (node)
 			{
-				struct string_list *folder_list;
-				callbacks->set_status_static(_("Login successful"));
-				callbacks->set_status_static(_("Checking for folders"));
-
-				SM_DEBUGF(10,("Get folders\n"));
-				if ((folder_list = imap_get_folders(conn,0)))
+				if (!(imap_synchonize_folder(conn, server, node->string, callbacks)))
 				{
-					struct string_node *node;
-
-					/* add the folders */
-					node = string_list_first(folder_list);
-					while (node)
-					{
-						callbacks->add_imap_folder(server->login,server->name,node->string);
-						node = (struct string_node*)node_next(&node->node);
-					}
-					callbacks->refresh_folders();
-
-					/* sync the folders */
-					node = string_list_first(folder_list);
-					while (node)
-					{
-						if (!(imap_synchonize_folder(conn, server, node->string, callbacks)))
-							break;
-						node = (struct string_node*)node_next(&node->node);
-					}
-
-					string_list_free(folder_list);
+					sm_snprintf(head_buf,sizeof(head_buf),_("Failed to sync folder \"%s\""),node->string);
+					callbacks->set_status(head_buf);
+					break;
 				}
-			} else
-			{
-				callbacks->set_status_static(_("Login failed!"));
-				tell_from_subtask(N_("Authentication failed!"));
+				node = (struct string_node*)node_next(&node->node);
 			}
-		}
-		tcp_disconnect(conn);
 
-		if (thread_aborted()) return 0;
-	} else
-	{
-		SM_DEBUGF(10,("Unable to connect\n"));
-		if (thread_aborted()) return 0;
-		else tell_from_subtask((char*)tcp_strerror(error_code));
+			string_list_free(folder_list);
+		}
+
+		tcp_disconnect(conn);
 	}
+
+	if (thread_aborted()) return 0;
 
 	/* We handle only the abort case as failure for now */
 	return 1;
@@ -1720,7 +1691,7 @@ int imap_really_download_mails(struct connection *imap_connection, struct imap_d
 				args.set_status = options->callbacks.set_status;
 				args.set_status_static = options->callbacks.set_status_static;
 
-				if ((rm = imap_get_remote_mails(&args)))
+				if ((rm = imap_get_remote_mails(NULL, &args)))
 				{
 					int i,j;
 
@@ -1846,7 +1817,7 @@ int imap_really_download_mails(struct connection *imap_connection, struct imap_d
 						imap_free_remote_mailbox(rm);
 						/* Rescan folder in order to delete orphaned messages */
 						if (!imap_server->keep_orphans)
-							rm = imap_get_remote_mails(&args);
+							rm = imap_get_remote_mails(NULL, &args);
 						else
 							rm = NULL;
 					}
