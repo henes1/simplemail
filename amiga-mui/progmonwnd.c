@@ -49,8 +49,13 @@ static Object *progmon_noop;
 struct progmon_gui_node
 {
 	struct node node;
+
+	/** Progress id */
+	int id;
+
 	Object *progmon_group;
 	Object *progmon_gauge;
+	Object *progmon_cancel_button;
 
 	utf8 working_on_utf8[80];
 	char working_on[80];
@@ -58,6 +63,9 @@ struct progmon_gui_node
 
 static struct list progmon_gui_list;
 
+/**
+ * Initialize the progmod window.
+ */
 static void progmonwnd_init(void)
 {
 	if (!MUIMasterBase) return;
@@ -85,6 +93,16 @@ static void progmonwnd_init(void)
 
 		list_init(&progmon_gui_list);
 	}
+}
+
+/**
+ * Function to be called on a cancel click.
+ *
+ * @param node
+ */
+static void progmonwnd_cancel(struct progmon_gui_node **node)
+{
+	progmon_cancel((*node)->id);
 }
 
 /**
@@ -117,12 +135,18 @@ static void progmonwnd_scan_entry(struct progmon_info *info, void *udata)
 					MUIA_Gauge_Max, info->work,
 					MUIA_Gauge_InfoText, next_node->working_on,
 					End,
+				Child, next_node->progmon_cancel_button = MakeButton("Cancel"),
 				End;
 
 		if (!next_node->progmon_group)
+		{
+			free(next_node);
 			return;
+		}
 
+		set(next_node->progmon_cancel_button, MUIA_Weight, 0);
 		DoMethod(progmon_group, OM_ADDMEMBER, (ULONG)next_node->progmon_group);
+		DoMethod(next_node->progmon_cancel_button, MUIM_Notify, MUIA_Pressed, FALSE, next_node->progmon_cancel_button, 4, MUIM_CallHook, &hook_standard, progmonwnd_cancel, next_node);
 		list_insert_tail(&progmon_gui_list,&next_node->node);
 
 		SM_DEBUGF(20,("Node %p added\n",next_node));
@@ -139,6 +163,9 @@ static void progmonwnd_scan_entry(struct progmon_info *info, void *udata)
 
 		*next_node_ptr = (struct progmon_gui_node *)node_next(&next_node->node);
 	}
+
+	set(next_node->progmon_cancel_button, MUIA_ShowMe, info->cancelable);
+	next_node->id = info->id;
 
 	SM_LEAVE;
 }
