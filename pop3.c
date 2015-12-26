@@ -968,8 +968,6 @@ static int pop3_really_dl_single(struct pop3_dl_options *dl_options, struct pop3
 				struct uidl uidl;
 				struct pop3_mail_stats stats;
 
-				int success = 1;
-
 				SM_DEBUGF(15,("Logged in successfully\n"));
 
 				pop3_uidl_init(&uidl,server,folder_directory);
@@ -986,7 +984,6 @@ static int pop3_really_dl_single(struct pop3_dl_options *dl_options, struct pop3
 					if(chdir(dest_dir) == -1)
 					{
 						tell_from_subtask(N_("Can\'t access income folder!"));
-						success = 0;
 					} else
 					{
 						int max_mail_size_sum = 0;
@@ -994,6 +991,8 @@ static int pop3_really_dl_single(struct pop3_dl_options *dl_options, struct pop3
 
 						int max_dl_mails = 0;
 						int cur_dl_mail = 0;
+
+						int success = 1;
 
 						/* determine the size of the mails which should be downloaded */
 						for (i=0; i<mail_amm; i++)
@@ -1059,12 +1058,12 @@ static int pop3_really_dl_single(struct pop3_dl_options *dl_options, struct pop3
 							}
 						}
 
+						rc = success;
 						chdir(path);
 					}
 
 					pop3_free_mail_array(&stats);
 				}
-				rc = success;
 				pop3_quit(callbacks,conn,server);
 				callbacks->set_status_static("");
 
