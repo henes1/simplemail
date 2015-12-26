@@ -3,8 +3,8 @@
 $version = "0.42";
 $date = "2015/12/24";
 
-$morphversion = "0.40";
-$morphdate = "2013/12/29";
+$morphversion = "0.42";
+$morphdate = "2015/12/24";
 
 $arosversion = "0.37";
 $arosdate = "2011/02/26";
@@ -55,7 +55,7 @@ $arosdate = "2011/02/26";
 
 <tr bgcolor="lightgray">
 <?php
-  echo '<td align="center"><A HREF="http://prdownloads.sourceforge.net/simplemail/simplemail-'.$morphversion.'-morphos.lha?download">'."simplemail-$morphversion-morphos.lha".'</A></td>';
+  echo '<td align="center"><A HREF="http://prdownloads.sourceforge.net/simplemail/simplemail-'.$morphversion.'-openssl-morphos.lha?download">'."simplemail-$morphversion-openssl-morphos.lha".'</A></td>';
   echo '<td align="center">'.$morphversion.'</td>';
   echo '<td align="center">'.$morphdate.'</td>';
 ?>
