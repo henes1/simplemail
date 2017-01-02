@@ -18,16 +18,11 @@
 #ifndef SM__HASH_H
 #define SM__HASH_H
 
+/** An entry within the table */
 struct hash_entry
 {
 	const char *string;
 	unsigned int data;
-};
-
-struct hash_bucket
-{
-	struct hash_bucket *next;
-	struct hash_entry entry;
 };
 
 struct hash_table
@@ -36,9 +31,11 @@ struct hash_table
 	unsigned int mask; /* The bit mask for accessing the elements */
 	unsigned int size; /* Size of the hash table */
 	unsigned int data;
+	unsigned int num_entries; /* Total number of entries managed by this table */
+	unsigned int num_occupied_buckets; /* Total number of occupied primary buckets */
 	const char *filename;
 
-	struct hash_bucket *table;
+	struct hash_bucket *table; /* contains the actual entries, but is opaque */
 };
 
 /**
@@ -70,8 +67,8 @@ int hash_table_init(struct hash_table *ht, int bits, const char *filename);
 void hash_table_clean(struct hash_table *ht);
 
 /**
- * Presists the hash table. Works only, if filename was given at
- * hash_table_init().
+ * Stores the hash table on the filesystem. This works only, if filename was
+ * given at hash_table_init().
  *
  * @param ht the hash table to store.
  */
@@ -86,12 +83,13 @@ void hash_table_store(struct hash_table *ht);
 void hash_table_clear(struct hash_table *ht);
 
 /**
- * Insert a new entry into the hash table.
+ * Insert a new entry into the hash table. Ownership of the string is given
+ * to the hashtable and will be freed via free() when no longer needed.
  *
  * @param ht
  * @param string
  * @param data
- * @return
+ * @return the hash entry.
  */
 struct hash_entry *hash_table_insert(struct hash_table *ht, const char *string, unsigned int data);
 

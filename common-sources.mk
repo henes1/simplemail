@@ -27,6 +27,7 @@ NONARCHSRCS=\
 	index_external.c \
 	index_naive.c \
 	lists.c \
+	logging.c \
 	mail.c \
 	mail_support.c \
 	mailinfo_extractor.c \
@@ -40,6 +41,7 @@ NONARCHSRCS=\
 	print.c \
 	progmon.c \
 	punycode.c \
+	ringbuffer.c \
 	signature.c \
 	simplemail.c \
 	smintl.c \
@@ -48,6 +50,7 @@ NONARCHSRCS=\
 	ssl.c \
 	status.c \
 	string_lists.c \
+	string_pools.c \
 	support_indep.c \
 	taglines.c \
 	tcp.c \

@@ -16,16 +16,38 @@
  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ***************************************************************************/
 
-/**
- * @file errorwnd.h
- */
+#include "logging.h"
 
-#ifndef SM__ERRORWND_H
-#define SM__ERRORWND_H
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
 
-/**
- * Open the error window.
- */
-void error_window_open(void);
+#include <CUnit/Basic.h>
 
-#endif
+/*****************************************************************************/
+
+/* @Test */
+void test_logging_init_and_dispose(void)
+{
+	CU_ASSERT(logg_init(NULL) == 1);
+	logg_dispose();
+}
+
+/*****************************************************************************/
+
+/* @Test */
+void test_logging_only_dispose(void)
+{
+	logg_dispose();
+}
+
+/*****************************************************************************/
+
+/* @Test */
+void test_one_entry(void)
+{
+	CU_ASSERT(logg_init(NULL) == 1);
+	logg(INFO, 0, __FILE__,__PRETTY_FUNCTION__, __LINE__, "LOG", LAST);
+	logg_dispose();
+}

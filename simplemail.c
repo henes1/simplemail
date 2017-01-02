@@ -41,6 +41,7 @@
 #include "folder_search_thread.h"
 #include "imap_thread.h" /* imap_thread_xxx() */
 #include "lists.h"
+#include "logging.h"
 #include "mail.h"
 #include "mailinfo_extractor.h"
 #include "mbox.h"
@@ -2304,21 +2305,41 @@ void callback_save_all_indexfiles(void)
 
 /*****************************************************************************/
 
+void callback_rescan_folder_completed(char *folder_path,  void *udata)
+{
+	struct folder *f;
+
+	if (!(f = folder_find_by_path(folder_path)))
+		return;
+
+	if (main_get_folder() != f)
+		return;
+
+	app_busy();
+	main_set_folder_mails(f);
+	main_refresh_folder(f);
+	read_refresh_prevnext_button(f);
+	app_unbusy();
+}
+
+/*****************************************************************************/
+
+void callback_refresh_folder(struct folder *f)
+{
+	main_refresh_folder(f);
+}
+
+/*****************************************************************************/
+
 void callback_rescan_folder(void)
 {
 	struct folder *f = main_get_folder();
 	if (f)
 	{
-		app_busy();
-
 		/* Because this means deleting all mails we safely remove all found mails as it
 		 * could reference an old mail */
 		search_clear_results();
-		folder_rescan(f, status_set_status);
-		main_set_folder_mails(f);
-		main_refresh_folder(f);
-		read_refresh_prevnext_button(f);
-		app_unbusy();
+		folder_rescan_async(f, status_set_status, callback_rescan_folder_completed, NULL);
 	}
 }
 
@@ -2331,6 +2352,7 @@ static struct progmon *downloading_partial_mail_progmon;
 static int simplemail_download_next_partial_mail(void);
 
 /**
+ * Callback that is invoked if a partial mail has been downloaded.
  *
  * @param m
  * @param userdata
@@ -2546,6 +2568,7 @@ void simplemail_deinit(void)
 
 	SM_LEAVE;
 
+	logg_dispose();
 	debug_deinit();
 }
 
@@ -2553,8 +2576,12 @@ void simplemail_deinit(void)
 
 int simplemail_init(void)
 {
+	logg_options_t logg_opts = {0};
+
 	if (!debug_init())
 		goto out;
+
+	logg_init(&logg_opts);
 
 #ifdef ENABLE_NLS
 	setlocale(LC_ALL, "");

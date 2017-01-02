@@ -37,11 +37,15 @@ TESTEXES=\
 	coroutines_unittest \
 	filter_unittest \
 	folder_unittest \
+	hash_unittest \
 	index_unittest \
 	index_external_unittest \
 	imap2_unittest \
+	logging_unittest \
 	mail_unittest \
 	pop3_unittest \
+	ringbuffer_unittest \
+	string_pools_unittest \
 	support_indep_unittest \
 	test_account_unittest \
 	text2html_unittest \
@@ -58,6 +62,8 @@ test-objs/%.o: ../%.c
 %_unittest: %_unittest.c lib$(SIMPLEMAIL_LIB).a
 	mkdir -p gen
 	perl gen-tests.pl <$< >gen/$@_table.c
+	# Generate test data files
+	python gen-test-data.py <$<
 	# Attempt to compile the unit test, but don't fail if it fails
 	@-$(CC) unittest_tmpl.c -DUNITTEST_TABLE=\"gen/$@_table.c\" -DUNITTEST_FILE=\"$<\" $(CFLAGS) -lcunit -L. -l$(SIMPLEMAIL_LIB) $(SSL_LDFLAGS) $(GLIB_LDFLAGS) $(GTK_LDFLAGS) 2>test-objs/$@error
 	# Generate simple stubs from error log
