@@ -34,6 +34,10 @@
 
 /*****************************************************************************/
 
+#define MAX(a,b) ((a)>(b)?(a):(b))
+
+/*****************************************************************************/
+
 struct hash_bucket
 {
 	struct hash_bucket *next;
@@ -55,17 +59,17 @@ unsigned long sdbm(const unsigned char *str)
 
 /*****************************************************************************/
 
-static struct hash_entry *hash_table_new_entry(void)
+static struct hash_entry *hash_table_new_entry(struct hash_table *ht)
 {
-	return (struct hash_entry*)malloc(sizeof(struct hash_entry));
+	return (struct hash_entry*)malloc(ht->entry_size);
 }
 
 /*****************************************************************************/
 
-static void hash_table_free_entry(struct hash_entry *entry)
+static void hash_table_free_entry(struct hash_table *ht, struct hash_entry *entry)
 {
 	if (!entry) return;
-	if (entry->string) free((char*)entry->string);
+	free((char*)entry->string);
 	free(entry);
 }
 
@@ -142,7 +146,7 @@ static int hash_table_set_bits(struct hash_table *ht, int bits)
 					e =  hb->entry;
 					nhb = hb->next;
 
-					new_index = sdbm(hb->entry->string) & mask;
+					new_index = sdbm((unsigned char*)hb->entry->string) & mask;
 					new_hb = &table[new_index];
 					new_e = new_hb->entry;
 
@@ -188,11 +192,13 @@ static int hash_table_set_bits(struct hash_table *ht, int bits)
 
 /*****************************************************************************/
 
-int hash_table_init(struct hash_table *ht, int bits, const char *filename)
+int hash_table_init_with_size(struct hash_table *ht, int bits, int entry_size, const char *filename)
 {
 	FILE *fh;
 
 	memset(ht, 0, sizeof(*ht));
+
+	ht->entry_size = MAX(sizeof(struct hash_entry), entry_size);
 
 	if (!hash_table_set_bits(ht, bits))
 		return 0;
@@ -241,6 +247,13 @@ int hash_table_init(struct hash_table *ht, int bits, const char *filename)
 
 /*****************************************************************************/
 
+int hash_table_init(struct hash_table *ht, int bits, const char *filename)
+{
+	return hash_table_init_with_size(ht, bits, sizeof(struct hash_entry), filename);
+}
+
+/*****************************************************************************/
+
 static void hash_table_deinit(struct hash_table *ht)
 {
 	int i;
@@ -248,13 +261,13 @@ static void hash_table_deinit(struct hash_table *ht)
 	for (i=0;i<ht->size;i++)
 	{
 		struct hash_bucket *hb = &ht->table[i];
-		hash_table_free_entry(hb->entry);
+		hash_table_free_entry(ht, hb->entry);
 
 		hb = hb->next;
 		while (hb)
 		{
 			struct hash_bucket *thb = hb->next;
-			hash_table_free_entry(hb->entry);
+			hash_table_free_entry(ht, hb->entry);
 			free(hb);
 			hb = thb;
 		}
@@ -325,7 +338,7 @@ struct hash_entry *hash_table_insert(struct hash_table *ht, const char *string, 
 		hb->next = nhb;
 	}
 
-	if (!(hb->entry = hash_table_new_entry()))
+	if (!(hb->entry = hash_table_new_entry(ht)))
 	{
 		return NULL;
 	}

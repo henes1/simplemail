@@ -69,6 +69,9 @@ static int (*compare_secondary)(const struct mail_info *arg1, const struct mail_
 /* the global folder lock semaphore */
 static semaphore_t folders_semaphore;
 
+/* the global string pool for the folder */
+static struct string_pool *folder_spool;
+
 /**
  * Compare two mails with respect to their status.
  *
@@ -1789,8 +1792,6 @@ static struct mail_info *folder_read_mail_info_from_index(FILE *fh, struct strin
 
 	if ((m = mail_info_create()))
 	{
-		int first = 1;
-
 		m->subject = (utf8*)fread_str(fh, sp, 0);
 		m->filename = fread_str(fh, sp, 0);
 		m->from_phrase = (utf8*)fread_str_no_null(fh, sp);
@@ -1805,13 +1806,6 @@ static struct mail_info *folder_read_mail_info_from_index(FILE *fh, struct strin
 			char *realname = fread_str_no_null(fh, sp);
 			char *email = fread_str_no_null(fh, sp);
 			struct address *addr;
-
-			if (first)
-			{
-				m->to_phrase = (utf8*)mystrdup(realname);
-				m->to_addr = mystrdup(email);
-				first = 0;
-			}
 
 			if (m->to_list)
 			{
@@ -4454,6 +4448,12 @@ int init_folders(void)
 	if (!(folders_semaphore = thread_create_semaphore()))
 		return 0;
 
+	if (!(folder_spool = string_pool_create()))
+	{
+		thread_dispose_semaphore(folders_semaphore);
+		return 0;
+	}
+
 	list_init(&folder_list);
 
 	folder_traverse_order_file(init_folders_traverse_orders_callback,NULL);
@@ -4567,6 +4567,8 @@ void del_folders(void)
 
 	while ((node = (struct folder_node*)list_remove_tail(&folder_list)))
 		folder_node_dispose(node);
+
+	string_pool_delete(folder_spool);
 }
 
 /*****************************************************************************/
