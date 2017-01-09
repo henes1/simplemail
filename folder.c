@@ -386,6 +386,7 @@ static int fwrite_str(FILE *fh, char *str, struct string_pool *sp)
 			if (fputc((sp_id >> 16) & 0xff, fh)==EOF) return 0;
 			if (fputc((sp_id >> 8) & 0xff, fh)==EOF) return 0;
 			if (fputc(lower,fh)==EOF) return 0;
+			return 4;
 		} else
 		{
 			upper = (strl/256)%256;
@@ -453,6 +454,9 @@ static char *fread_str(FILE *fh, struct string_pool *sp, int zero_is_null)
 		{
 			fread(txt,1,len,fh);
 			txt[len]=0;
+		} else
+		{
+			fseek(fh, len, SEEK_CUR);
 		}
 	}
 	return txt;
@@ -1792,8 +1796,9 @@ static struct mail_info *folder_read_mail_info_from_index(FILE *fh, struct strin
 
 	if ((m = mail_info_create()))
 	{
-		m->subject = (utf8*)fread_str(fh, sp, 0);
-		m->filename = fread_str(fh, sp, 0);
+		m->subject = (utf8*)fread_str(fh, NULL, 0);
+		m->filename = fread_str(fh, NULL, 0);
+
 		m->from_phrase = (utf8*)fread_str_no_null(fh, sp);
 		m->from_addr = fread_str_no_null(fh, sp);
 
