@@ -505,9 +505,16 @@ char *mail_get_new_name(int status)
 
 /*****************************************************************************/
 
+int mail_is_marked_as_deleted_by_filename(const char *fn)
+{
+	return fn[0] == 'd' || fn[0] =='D';
+}
+
+/*****************************************************************************/
+
 int mail_is_marked_as_deleted(struct mail_info *mail)
 {
-	return (*mail->filename == 'd') || (*mail->filename == 'D');
+	return mail_is_marked_as_deleted_by_filename(mail->filename);
 }
 
 /*****************************************************************************/
@@ -575,25 +582,28 @@ void mail_identify_status(struct mail_info *m)
 
 /*****************************************************************************/
 
-struct mail_info *mail_info_create(void)
+struct mail_info *mail_info_create(mail_context *mc)
 {
 	struct mail_info *m;
 
 	if ((m = (struct mail_info*)malloc(sizeof(struct mail_info))))
+	{
 		memset(m,0,sizeof(*m));
+		m->context = mc;
+	}
 	return m;
 }
 
 /*****************************************************************************/
 
-struct mail_complete *mail_complete_create(void)
+struct mail_complete *mail_complete_create(mail_context *mc)
 {
 	struct mail_complete *m;
 
 	if ((m = (struct mail_complete*)malloc(sizeof(struct mail_complete))))
 	{
 		memset(m,0,sizeof(*m));
-		if ((m->info = mail_info_create()))
+		if ((m->info = mail_info_create(mc)))
 		{
 			list_init(&m->content_parameter_list);
 			list_init(&m->header_list);
@@ -637,12 +647,12 @@ int mail_read_header_list_if_empty(struct mail_complete *m)
 
 /*****************************************************************************/
 
-struct mail_complete *mail_complete_create_from_file(char *filename)
+struct mail_complete *mail_complete_create_from_file(mail_context *mc, char *filename)
 {
 	struct mail_complete *m;
 	FILE *fh;
 
-	if ((m = mail_complete_create()))
+	if ((m = mail_complete_create(mc)))
 	{
 		unsigned int size = ~0;
 
@@ -698,11 +708,11 @@ struct mail_complete *mail_complete_create_from_file(char *filename)
 
 /*****************************************************************************/
 
-struct mail_info *mail_info_create_from_file(char *filename)
+struct mail_info *mail_info_create_from_file(mail_context *mc, char *filename)
 {
 	struct mail_complete *mail;
 
-	if ((mail = mail_complete_create_from_file(filename)))
+	if ((mail = mail_complete_create_from_file(mc, filename)))
 	{
 		struct mail_info *info;
 
@@ -727,7 +737,7 @@ struct mail_complete *mail_create_for(char *from, char *to_str_unexpanded, char 
 	to_str = to_str_unexpanded?addressbook_get_expanded(to_str_unexpanded):NULL;
 
 	if (to_str) parse_mailbox(to_str,&mb);
-	if ((mail = mail_complete_create()))
+	if ((mail = mail_complete_create(NULL)))
 	{
 		string contents_str;
 
@@ -911,7 +921,7 @@ static char *mail_create_replied_subject_line(int num, struct mail_complete **ma
 
 struct mail_complete *mail_create_reply(int num, struct mail_complete **mail_array)
 {
-	struct mail_complete *m = mail_complete_create();
+	struct mail_complete *m = mail_complete_create(NULL);
 	if (m)
 	{
 		struct mail_complete *mail = mail_array[0];
@@ -1117,11 +1127,11 @@ struct mail_complete *mail_create_forward(int num, char **filename_array)
 
 	if (num < 1) return NULL;
 
-	if ((m = mail_complete_create()))
+	if ((m = mail_complete_create(NULL)))
 	{
 		struct mail_complete *forward;
 
-		if (!(forward = mail_complete_create_from_file(filename_array[0])))
+		if (!(forward = mail_complete_create_from_file(NULL, filename_array[0])))
 		{
 			mail_complete_free(forward);
 			return NULL;
@@ -1178,7 +1188,7 @@ struct mail_complete *mail_create_forward(int num, char **filename_array)
 
 					size = myfsize(fh);
 
-					if ((new_part = mail_complete_create()))
+					if ((new_part = mail_complete_create(NULL)))
 					{
 						if ((new_part->decoded_data = malloc(size)))
 						{
@@ -1208,7 +1218,7 @@ struct mail_complete *mail_create_forward(int num, char **filename_array)
 			m->content_type = mystrdup("multipart");
 			m->content_subtype = mystrdup("mixed");
 
-			if ((m->multipart_array[0] = mail_complete_create()))
+			if ((m->multipart_array[0] = mail_complete_create(NULL)))
 			{
 				m->multipart_array[0]->decoded_data = mystrdup("");
 				m->multipart_array[0]->decoded_len = mystrlen(m->multipart_array[0]->decoded_data);
@@ -1278,7 +1288,7 @@ struct mail_complete *mail_create_forward(int num, char **filename_array)
 					/* Ignore multiparts parts and the part which has been found above */
 					if (!mail_iter->num_multiparts && mail_iter != text_mail)
 					{
-						struct mail_complete *new_part = mail_complete_create();
+						struct mail_complete *new_part = mail_complete_create(NULL);
 						if (new_part)
 						{
 							int attach_len;
@@ -1314,14 +1324,14 @@ struct mail_complete *mail_create_forward(int num, char **filename_array)
 				mail_complete_free(forward);
 				i++;
 				if (i>=num) break;
-				if (!(forward = mail_complete_create_from_file(filename_array[i]))) break;
+				if (!(forward = mail_complete_create_from_file(NULL, filename_array[i]))) break;
 				mail_read_contents("",forward);
 			} /* while (1) */
 
 			/* So we have not only a single part */
 			if (m->num_multiparts)
 			{
-				if ((m->multipart_array[0] = mail_complete_create()))
+				if ((m->multipart_array[0] = mail_complete_create(NULL)))
 				{
 					m->multipart_array[0]->decoded_data = modified_text;
 					m->multipart_array[0]->decoded_len = mystrlen(modified_text);
@@ -1582,6 +1592,8 @@ int mail_process_headers(struct mail_complete *mail)
 {
 	struct header *header = (struct header*)list_first(&mail->header_list);
 	struct header *header_next;
+
+	mail_context *mc = mail->info->context;
 
 	for (; header; header = header_next)
 	{
@@ -1917,7 +1929,21 @@ int mail_process_headers(struct mail_complete *mail)
 
 			case HEADER_X_SIMPLEMAIL_POP3:
 			{
-				mail->info->pop3_server = mystrdup(buf);
+				int id = -1;
+				if (mc)
+				{
+					id = string_pool_ref(mc->sp, buf);
+				}
+
+				if (id != -1)
+				{
+					mail->info->pop3_server.id = id;
+					mail->info->tflags |= MAIL_TFLAGS_POP3_ID;
+				}
+				else
+				{
+					mail->info->pop3_server.str = mystrdup(buf);
+				}
 			}
 			break;
 
@@ -2068,7 +2094,7 @@ static void mail_decrypt(struct mail_complete *mail)
 								for (i=0;i<mail->num_multiparts;i++)
 									mail_complete_free(mail->multipart_array[i]);
 
-								if ((new_mail = mail->multipart_array[0] = mail_complete_create()))
+								if ((new_mail = mail->multipart_array[0] = mail_complete_create(NULL)))
 								{
 									struct mail_scan ms;
 
@@ -2153,7 +2179,7 @@ static void mail_resolve_smime(struct mail_complete *mail)
 		struct mail_scan ms;
 
 		if (!(mail->multipart_array = (struct mail_complete**)malloc(sizeof(struct mail_complete*)*1))) return;
-		if (!(new_mail = mail->multipart_array[0] = mail_complete_create())) return;
+		if (!(new_mail = mail->multipart_array[0] = mail_complete_create(mail->info->context))) return;
 		mail->multipart_allocated = mail->num_multiparts = 1;
 
 		mail_decode(mail);
@@ -2241,7 +2267,7 @@ static int mail_read_structure(struct mail_complete *mail)
 							}
 						}
 
-						if ((new_mail = mail_complete_create()))
+						if ((new_mail = mail_complete_create(NULL)))
 						{
 							struct mail_scan ms;
 
@@ -2291,7 +2317,7 @@ static int mail_read_structure(struct mail_complete *mail)
 		struct mail_scan ms;
 
 		if (!(mail->multipart_array = malloc(sizeof(struct mail*)))) return 0;
-		if (!(new_mail = mail->multipart_array[0] = mail_complete_create())) return 0;
+		if (!(new_mail = mail->multipart_array[0] = mail_complete_create(NULL))) return 0;
 		mail->multipart_allocated = mail->num_multiparts = 1;
 
 		/* Decode the mail */
@@ -2426,6 +2452,24 @@ void *mail_decode_bytes(struct mail_complete *mail, unsigned int *len_ptr)
 	return decoded;
 }
 
+/**
+ * Free a mail string, either the id or directly.
+ *
+ * @param m the mail to which
+ * @param str
+ * @param free_id
+ */
+static void mail_free_str(struct mail_info *m, union mail_str *str, int free_id)
+{
+	if (free_id)
+	{
+		string_pool_deref_by_id(m->context->sp, str->id);
+	} else
+	{
+		free(str->str);
+	}
+}
+
 /*****************************************************************************/
 
 void mail_info_free(struct mail_info *info)
@@ -2435,7 +2479,7 @@ void mail_info_free(struct mail_info *info)
 	/* don't free anything, if there still other references of this mail */
 	if (info->reference_count)
 	{
-		info->to_be_freed = 1;
+		info->tflags |= MAIL_TFLAGS_TO_BE_FREED;
 		return;
 	}
 
@@ -2445,7 +2489,9 @@ void mail_info_free(struct mail_info *info)
 	if (info->to_list) address_list_free(info->to_list);
 	if (info->cc_list) address_list_free(info->cc_list);
 	free(info->reply_addr);
-	free(info->pop3_server);
+
+	mail_free_str(info, &info->pop3_server, !!(info->tflags & MAIL_TFLAGS_POP3_ID));
+
 	free(info->message_id);
 	free(info->message_reply_id);
 	free(info->filename);
@@ -2523,7 +2569,7 @@ void mail_dereference(struct mail_info *mail)
 	}
 	mail->reference_count--;
 	SM_DEBUGF(20,("Decreased reference count of mail %p to %ld\n",mail,mail->reference_count));
-	if (mail->to_be_freed) mail_info_free(mail);
+	if (mail->tflags & MAIL_TFLAGS_TO_BE_FREED) mail_info_free(mail);
 }
 
 /*****************************************************************************/
@@ -3058,7 +3104,7 @@ int mail_compose_new(struct composed_mail *new_mail, int hold)
 				remove(new_name);
 		}
 
-		if ((mail = mail_info_create_from_file(new_name)))
+		if ((mail = mail_info_create_from_file(NULL, new_name)))
 		{
 			struct mail_info *old_mail;
 

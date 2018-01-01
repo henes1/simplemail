@@ -32,6 +32,7 @@ SIMPLEMAIL_LIB  = simplemail
 
 TESTEXES=\
 	addressbook_unittest \
+	arrays_unittest \
 	boyermoore_unittest \
 	codesets_unittest \
 	configuration_unittest \
@@ -59,10 +60,13 @@ test-objs/%.o: ../%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-# General rule to compile the unit tests
-%_unittest: %_unittest.c lib$(SIMPLEMAIL_LIB).a
+# General rule to create the unittest table
+gen/%_unittest_table.c: %_unittest.c
 	mkdir -p gen
-	perl gen-tests.pl <$< >gen/$@_table.c
+	perl gen-tests.pl <$< >$@
+
+# General rule to compile the unit tests
+%_unittest: %_unittest.c gen/%_unittest_table.c lib$(SIMPLEMAIL_LIB).a
 	# Generate test data files
 	python gen-test-data.py <$<
 	# Attempt to compile the unit test, but don't fail if it fails
@@ -70,7 +74,7 @@ test-objs/%.o: ../%.c
 	# Generate simple stubs from error log
 	perl gen-stubs.pl <test-objs/$@error >gen/$@stubs.c
 	# Finally, compile again
-	$(CC) gen/$@stubs.c unittest_tmpl.c -DUNITTEST_TABLE=\"gen/$@_table.c\" -DUNITTEST_FILE=\"$<\" $(CFLAGS) -lcunit -L. -l$(SIMPLEMAIL_LIB) $(SSL_LDFLAGS) $(GLIB_LDFLAGS) $(GTK_LDFLAGS) -o $@
+	$(CC) -MMD -MP gen/$@stubs.c unittest_tmpl.c -DUNITTEST_TABLE=\"gen/$@_table.c\" -DUNITTEST_FILE=\"$<\" $(CFLAGS) -lcunit -L. -l$(SIMPLEMAIL_LIB) $(SSL_LDFLAGS) $(GLIB_LDFLAGS) $(GTK_LDFLAGS) -o $@
 
 .PHONY: all
 all: files $(TESTEXES) memleaks
@@ -218,4 +222,4 @@ $(foreach testexe,$(TESTEXES), \
 )
 
 # Now include dependencies, but don't fail if they are not available
--include $(OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(addsuffix .d,$(TESTEXES))

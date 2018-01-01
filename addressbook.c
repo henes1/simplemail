@@ -180,7 +180,9 @@ static void addressbook_hash_entry(struct addressbook_entry_new *e)
 
 		if (!(he = (struct address_hash_entry*)hash_table_lookup(&address_hash, email)))
 		{
-			if ((he = (struct address_hash_entry*)hash_table_insert(&address_hash, email, 0)))
+			char *dup_email = mystrdup(email);
+
+			if ((dup_email && (he = (struct address_hash_entry*)hash_table_insert(&address_hash, dup_email, 0))))
 			{
 				if (!(he->abe = malloc(sizeof(*he->abe)*4)))
 					goto out;
@@ -777,6 +779,16 @@ int init_addressbook(void)
 
 /*****************************************************************************/
 
+static void addressbook_free_hash_entry(struct hash_entry *entry, void *data)
+{
+	struct address_hash_entry *ahe = (struct address_hash_entry*)entry;
+	free(ahe->abe);
+	ahe->num_abe = ahe->num_abe_allocated = 0;
+}
+
+
+/*****************************************************************************/
+
 void addressbook_clear(void)
 {
 	struct addressbook_entry_new *entry;
@@ -789,6 +801,8 @@ void addressbook_clear(void)
 		addressbook_free_group(group);
 
 	index_dispose(address_index);
+
+	hash_table_call_for_each_entry(&address_hash, addressbook_free_hash_entry, NULL);
 	hash_table_clear(&address_hash);
 }
 
@@ -1650,3 +1664,188 @@ char *addressbook_complete_address(char *address)
 	return NULL;
 }
 
+/*****************************************************************************/
+
+/**
+ * Create and add a new completion list entry.
+ *
+ * @param cl the list where to add.
+ * @param type the type of the completion-
+ * @param complete the complete string.
+ * @param m the mask that contains at least utf8len(complete) bits or NULL. The mask will be duplicated.
+ * @return 1 on success, else 0.
+ */
+static int addressbook_completion_list_add(struct addressbook_completion_list *cl, addressbook_completion_node_type type, char *complete, match_mask_t *m)
+{
+	struct addressbook_completion_node *acn;
+
+	if (!(acn = malloc(sizeof(*acn))))
+		return 0;
+	memset(acn, 0, sizeof(*acn));
+	acn->type = type;
+	acn->complete = complete;
+	if (m)
+	{
+		int l = utf8len(complete);
+		if ((acn->match_mask = malloc(match_bitmask_size(l))))
+		{
+			memcpy(acn->match_mask, m, match_bitmask_size(l));
+		}
+	}
+	list_insert_tail(&cl->l, &acn->n);
+	return 1;
+}
+
+/*****************************************************************************/
+
+struct addressbook_completion_node *addressbook_completion_node_duplicate(struct addressbook_completion_node *n)
+{
+	struct addressbook_completion_node *nc;
+	int l;
+
+	if (!(nc = malloc(sizeof(*nc))))
+	{
+		return NULL;
+	}
+
+	if (!(nc->complete = mystrdup(n->complete)))
+	{
+		goto bailout;
+	}
+
+	l = utf8len(nc->complete);
+	if ((nc->match_mask = malloc(match_bitmask_size(l))))
+	{
+		memcpy(nc->match_mask, n->match_mask, match_bitmask_size(l));
+	} else
+	{
+		goto bailout;
+	}
+	nc->type = n->type;
+
+	return nc;
+bailout:
+	free(nc->match_mask);
+	free(nc->complete);
+	free(nc);
+	return NULL;
+}
+
+void addressbook_completion_node_free(struct addressbook_completion_node *n)
+{
+	free(n->complete);
+	free(n->match_mask);
+	free(n);
+}
+
+void addressbook_completion_list_free(struct addressbook_completion_list *cl)
+{
+	struct addressbook_completion_node *n;
+	while ((n = (struct addressbook_completion_node *)list_remove_tail(&cl->l)))
+	{
+		free(n->match_mask);
+		free(n);
+	}
+	free(cl);
+}
+
+/*****************************************************************************/
+
+/**
+ * @return whether the element has been added or not.
+ */
+static int addressbook_test_and_add_match(
+	struct addressbook_completion_list *cl, addressbook_completion_node_type type,
+	char *haystack, const char *needle,
+	match_mask_t **pm, int *pm_len)
+{
+	int l;
+	match_mask_t *m = *pm;
+	int m_len = *pm_len;
+
+	if (!haystack)
+		return 0;
+
+	l = strlen(haystack);
+
+	if (l > m_len)
+		m = NULL;
+
+	if (utf8match(haystack, needle, 1, m))
+	{
+		addressbook_completion_list_add(cl, type, haystack, m);
+		return 1;
+	}
+	return 0;
+}
+
+/*****************************************************************************/
+
+struct addressbook_completion_list *addressbook_complete_address_full(char *address, unsigned int max)
+{
+	struct addressbook_completion_list *cl;
+
+	match_mask_t *m;
+	int m_len = 128;
+
+	if (max == 0)
+	{
+		max = ~0;
+	}
+
+	if (!(cl = malloc(sizeof(*cl))))
+		return NULL;
+	list_init(&cl->l);
+
+	if (!(m = malloc(match_bitmask_size(m_len))))
+	{
+		free(cl);
+		return NULL;
+	}
+
+	{
+		struct addressbook_entry_new *entry;
+		struct addressbook_group *group;
+		int total_entries = 0;
+
+		/* find matching group */
+		group = addressbook_first_group();
+		while (group)
+		{
+			total_entries += addressbook_test_and_add_match(cl, ACNT_GROUP, group->name, address, &m, &m_len);
+			group = addressbook_next_group(group);
+		}
+
+		/* find matching realname  */
+		entry = addressbook_first_entry();
+		while (entry && total_entries < max)
+		{
+			total_entries += addressbook_test_and_add_match(cl, ACNT_REALNAME, entry->realname, address, &m, &m_len);
+			entry = addressbook_next_entry(entry);
+		}
+
+		/* try if there exists a matching alias */
+		entry = addressbook_first_entry();
+		while (entry && total_entries < max)
+		{
+			total_entries += addressbook_test_and_add_match(cl, ACNT_ALIAS, entry->alias, address, &m, &m_len);
+			entry = addressbook_next_entry(entry);
+		}
+
+		/* addresses */
+		entry = addressbook_first_entry();
+		while (entry && total_entries < max)
+		{
+			int i;
+
+			for (i=0; i < array_length(entry->email_array) && total_entries < max; i++)
+			{
+				total_entries += addressbook_test_and_add_match(cl, ACNT_EMAIL, entry->email_array[i], address, &m, &m_len);
+			}
+			entry = addressbook_next_entry(entry);
+		}
+	}
+
+	free(m);
+	return cl;
+}

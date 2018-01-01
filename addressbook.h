@@ -75,7 +75,7 @@ struct addressbook_entry_new
 	int dob_month; /* month of birth */
 	int dob_year; /* year of birth */
 
-	int sex; /* 0 unspecifed, 1 female, 2 male */
+	int sex; /* 0 unspecified, 1 female, 2 male */
 
 	char **email_array; /* NULL terminated array of emails (use array_xxx() functions) */
 	char **group_array; /* NULL terminated array of names of groups (use array_xxx() functions) */
@@ -313,6 +313,91 @@ char *addressbook_download_portrait(char *email);
  * @return
  */
 char *addressbook_complete_address(char *address);
+
+/*****************************************************************************/
+
+typedef enum
+{
+	ACNT_GROUP,
+	ACNT_ALIAS,
+	ACNT_REALNAME,
+	ACNT_EMAIL
+} addressbook_completion_node_type;
+
+struct addressbook_completion_list
+{
+	struct list l;
+
+	/** Defines if the completion list is complete */
+	int complete;
+};
+
+struct addressbook_completion_node
+{
+	struct node n;
+
+	addressbook_completion_node_type type;
+
+	/** The complete string */
+	char *complete;
+
+	/** Match mask */
+	match_mask_t *match_mask;
+};
+
+/**
+ * Completes an groupname/alias/realname/e-mail address of the addressbook
+ *
+ * @param address
+ * @param max defines the maximum number of items that shall be put in the completion list. Use
+ *  0 to get the maximum.
+ * @return
+ */
+struct addressbook_completion_list *addressbook_complete_address_full(char *address, unsigned int max);
+
+/**
+ * Frees the list returned by addressbook_complete_address_full().
+ *
+ * @param cl
+ */
+void addressbook_completion_list_free(struct addressbook_completion_list *cl);
+
+/**
+ * Return the first addressbook completion entry of the given list.
+ *
+ * @param cl
+ * @return
+ */
+static inline struct addressbook_completion_node *addressbook_completion_list_first(struct addressbook_completion_list *cl)
+{
+	return (struct addressbook_completion_node *)list_first(&cl->l);
+}
+
+/**
+ * Return the next addressbook completion entrs of the given node.
+ *
+ * @param n
+ * @return
+ */
+static inline struct addressbook_completion_node *addressbook_completion_node_next(struct addressbook_completion_node *n)
+{
+	return (struct addressbook_completion_node*)node_next(&n->n);
+}
+/**
+ * Duplicate the given completion node.
+ *
+ * @param n the node to be duplicated.
+ * @return the duplicate or NULL. The result must be freed via addressbook_completion_node_free();
+ */
+struct addressbook_completion_node *addressbook_completion_node_duplicate(struct addressbook_completion_node *n);
+
+/**
+ * Free the given completion node.
+ *
+ * @param n the node to be freed. It needs to be a result of
+ *  addressbook_completion_node_duplicate().
+ */
+void addressbook_completion_node_free(struct addressbook_completion_node *n);
 
 #endif
 

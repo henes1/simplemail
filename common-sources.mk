@@ -5,6 +5,7 @@ NONARCHSRCS=\
 	account.c \
 	addressbook.c \
 	addresslist.c \
+	arrays.c \
 	atcleanup.c \
 	boyermoore.c \
 	codecs.c \
@@ -29,6 +30,7 @@ NONARCHSRCS=\
 	lists.c \
 	logging.c \
 	mail.c \
+	mail_context.c \
 	mail_support.c \
 	mailinfo_extractor.c \
 	mbox.c \

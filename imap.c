@@ -86,6 +86,30 @@ struct local_mail
 };
 
 /**
+ * Set the local mail array entry for the given entry.
+ *
+ * @param local_mail_array
+ * @param i
+ * @param fn
+ * @return whether the mail is scheduled to be deleted or not.
+ */
+static int set_local_mail_array_entry(struct local_mail *local_mail_array, int i, const char *fn)
+{
+	int todel = mail_is_marked_as_deleted_by_filename(fn);
+
+	if (fn[0] == 'u' || fn[0] == 'U' || todel)
+	{
+		local_mail_array[i].uid = atoi(fn + 1);
+		local_mail_array[i].todel = todel;
+	} else
+	{
+		local_mail_array[i].uid = 0;
+		local_mail_array[i].todel = 0;
+	}
+	return todel;
+}
+
+/**
  * Returns the local mail array of a given folder. 0 for failure (does not
  * change the contents of the ptrs in that case). Free the array with free()
  * as soon as no longer needed. The mail array is sorted according to the uid
@@ -162,16 +186,9 @@ static int get_local_mail_array(struct folder *folder, struct local_mail **local
 			while (sn)
 			{
 				const char *fn = sn->string;
-				if (fn[0] == 'u' || fn[0] == 'U' || fn[0] == 'd' || fn[0] == 'D')
-				{
-					local_mail_array[i].uid = atoi(fn + 1);
-					local_mail_array[i].todel = fn[0] == 'd' || fn[0] == 'D';
-					num_of_todel_mails += !!local_mail_array[i].todel;
-				} else
-				{
-					local_mail_array[i].uid = 0;
-					local_mail_array[i].todel = 0;
-				}
+
+				num_of_todel_mails += set_local_mail_array_entry(local_mail_array, i, fn);
+
 				sn = (struct string_node*)node_next(&sn->node);
 				i++;
 			}
@@ -183,16 +200,7 @@ static int get_local_mail_array(struct folder *folder, struct local_mail **local
 			{
 				const char *fn = folder->mail_info_array[i]?folder->mail_info_array[i]->filename:"";
 
-				if (fn[0] == 'u' || fn[0] == 'U' || fn[0] == 'd' || fn[0] == 'D')
-				{
-					local_mail_array[i].uid = atoi(fn + 1);
-					local_mail_array[i].todel = mail_is_marked_as_deleted(folder->mail_info_array[i]);
-					num_of_todel_mails += !!local_mail_array[i].todel;
-				} else
-				{
-					local_mail_array[i].uid = 0;
-					local_mail_array[i].todel = 0;
-				}
+				num_of_todel_mails += set_local_mail_array_entry(local_mail_array, i, fn);
 			}
 		}
 
