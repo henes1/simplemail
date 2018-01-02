@@ -3,14 +3,14 @@
 #
 
 CROSS_COMPILE = ppc-morphos-
-RM     = rm -rf
+RM     = rm -Rf
 MKDIR  = mkdir -p
 DATE   = -DSIMPLEMAIL_DATE=\"`date +%d.%m.%Y`\"
 
 # Uncomment the next line if you are cross compiling
 
-CC      = $(CROSS_COMPILE)gcc-4
-CXX     = $(CROSS_COMPILE)c++
+CC      = $(CROSS_COMPILE)gcc-5
+CXX     = $(CROSS_COMPILE)g++-5
 AS      = $(CROSS_COMPILE)as
 LD      = $(CROSS_COMPILE)ld
 RANLIB  = $(CROSS_COMPILE)ranlib
