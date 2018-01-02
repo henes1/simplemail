@@ -11,7 +11,6 @@ NONARCHSRCS=\
 	codecs.c \
 	codesets.c \
 	configuration.c \
-	coroutines_sockets.c \
 	coroutines.c \
 	dbx.c \
 	debug.c \
